@@ -1,0 +1,129 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #faf7f0;
+}
+
+/* Root */
+.dashboard-root {
+  min-height: 100vh;
+}
+
+/* Navbar */
+.navbar {
+  height: 56px;
+  background: #164a6b;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.menu-icon {
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.brand {
+  font-weight: 600;
+}
+
+.config {
+  opacity: 0.8;
+}
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background: red;
+  border-radius: 50%;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  background: #f97316;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+/* Search */
+.search-container {
+  padding: 18px;
+  display: flex;
+  justify-content: center;
+}
+
+.search-container input {
+  width: 60%;
+  max-width: 640px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+}
+
+/* App Grid */
+.app-grid {
+  padding: 20px 40px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 28px;
+}
+
+/* App Tile */
+.app-tile {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 14px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.app-tile:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.app-icon {
+  font-size: 34px;
+  margin-bottom: 8px;
+}
+
+.app-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .search-container input {
+    width: 90%;
+  }
+
+  .app-grid {
+    padding: 20px;
+  }
+}
