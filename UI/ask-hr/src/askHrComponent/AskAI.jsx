@@ -5,6 +5,7 @@ import Menu from "./Menu";
 // Import sound files
 import sendSound from "../sounds/send.mp3";
 import receiveSound from "../sounds/whatsappSend.mp3";
+import AudioButton from "../AudioToText/AudioButton";
 
 function AskAI({ user }) {
   /* ================== STATE ================== */
@@ -19,8 +20,14 @@ function AskAI({ user }) {
   const [hasExitedChat, setHasExitedChat] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
+  const [placeholder, setPlaceholder] = useState("");
+  const [index, setIndex] = useState(0);
+  const [charIndex, setCharIndex] = useState(0)
   const [redoStack, setRedoStack] = useState([]);
   const [showWelcome, setShowWelcome] = useState(true);
+  const [textIndex, setTextIndex] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
   // Draggable AI button
   const [aiPos, setAiPos] = useState({ x: window.innerWidth - 80, y: window.innerHeight - 100 });
   const [dragging, setDragging] = useState(false);
@@ -41,6 +48,39 @@ function AskAI({ user }) {
   ];
 
   /* ================== LOAD HISTORY ================== */
+useEffect(() => {
+  if (message) return; // Stop animation when user is typing
+  const currentText = placeholders[textIndex];
+  let timeout;
+  if (!isDeleting && charIndex < currentText.length) {
+    // Typing
+    timeout = setTimeout(() => {
+      setPlaceholder(currentText.slice(0, charIndex + 1));
+      setCharIndex(charIndex + 1);
+    }, 80);
+  } 
+  else if (!isDeleting && charIndex === currentText.length) {
+    // Pause before deleting
+    timeout = setTimeout(() => {
+      setIsDeleting(true);
+    }, 600);
+  } 
+  else if (isDeleting && charIndex > 0) {
+    // Deleting
+    timeout = setTimeout(() => {
+      setPlaceholder(currentText.slice(0, charIndex - 1));
+      setCharIndex(charIndex - 1);
+    }, 50);
+  } 
+  else if (isDeleting && charIndex === 0) {
+    // Move to next placeholder
+    setIsDeleting(false);
+    setTextIndex((prev) => (prev + 1) % placeholders.length);
+  }
+
+  return () => clearTimeout(timeout);
+}, [charIndex, isDeleting, textIndex, message]);
+
   useEffect(() => {
     const saved = localStorage.getItem("chatHistory");
     if (saved) setChatHistory(JSON.parse(saved));
@@ -174,7 +214,7 @@ function AskAI({ user }) {
 
     try {
       const res = await fetch(
-        `http://localhost:9091/askhr/api/v1/chat?message=${encodeURIComponent(userText)}`,
+        `http://localhost:9091/askhr/api/v1/pdf/chat?message=${encodeURIComponent(userText)}`,
         {
           method: "GET",
           signal: controller.signal,
@@ -214,7 +254,7 @@ function AskAI({ user }) {
           ...prev,
           {
             role: "ai",
-            text: "❌ Error occurred. Click to retry.",
+            text: "❌ Error occurred. Check your connectivity.",
             time: new Date().toLocaleTimeString(),
             failed: true,
             originalMessage: userText,
@@ -360,6 +400,12 @@ function AskAI({ user }) {
     { label: "About", onClick: () => alert("HR Help Assistant v1.0 by Abhinav Kumar") },
   ];
 
+  const placeholders = [
+  "Ready to help you. AskMe now...",
+  "Ask me about HR policies...",
+  "Ask anything anytime..",
+  "Need help with leave or payroll?"
+];
   /* ================== JSX ================== */
   if (!open) {
     return (
@@ -409,6 +455,7 @@ function AskAI({ user }) {
         <strong>{getTimeGreeting()}</strong> {user?.name}
       </h1>
       <p>How can I help you today?</p>
+  
     </div>
   ) : (
     <div className="chat-body">
@@ -439,12 +486,13 @@ function AskAI({ user }) {
 
         {/* FOOTER */}
         <div className="footer">
-          <input
+            <input
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="How can I help you today?"
+            placeholder={placeholder}
           />
+          <AudioButton onTranscribe={(text) => setMessage(text)} />
           <button
             className={loading ? "pause" : ""}
             onClick={() => {
@@ -454,6 +502,7 @@ function AskAI({ user }) {
           >
             {loading ? "Pause" : "Ask"}
           </button>
+          
         </div>
 
         <div className="footer-note">&copy; Developed by Abhinav Kumar @ 2026</div>
