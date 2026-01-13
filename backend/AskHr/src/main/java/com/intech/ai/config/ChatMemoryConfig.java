@@ -17,10 +17,28 @@ public class ChatMemoryConfig {
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory) {
 
-        SimpleLoggerAdvisor loggerAdvisor=  new SimpleLoggerAdvisor();
-        MessageChatMemoryAdvisor memoryAdvisor= MessageChatMemoryAdvisor.builder(chatMemory).build();
+        SimpleLoggerAdvisor loggerAdvisor = new SimpleLoggerAdvisor();
+
+        MessageChatMemoryAdvisor memoryAdvisor =
+                MessageChatMemoryAdvisor.builder(chatMemory).build();
+
         return chatClientBuilder
-                .defaultAdvisors(List.of(loggerAdvisor,memoryAdvisor))
+                .defaultSystem("""
+                    You are an HR assistant for INTECH INDIA.
+                    Your responsibility is to answer employee questions strictly based on the HR Leave Policy provided.
+                    If a question is outside this policy, politely respond that the information is not available.
+
+                    IMPORTANT RULE:
+                    If the question is NOT related to HR leave policies, you MUST respond ONLY with:
+                    "I’m sorry, this information is not available as per the HR Leave Policy."
+                    Do not explain.
+                    Do not add examples.
+                    Do not provide general knowledge.
+                """)
+                .defaultAdvisors(List.of(
+                        loggerAdvisor,
+                        memoryAdvisor   // memory AFTER system
+                ))
                 .build();
     }
 
