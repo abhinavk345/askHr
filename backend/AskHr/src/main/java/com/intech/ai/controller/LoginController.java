@@ -28,7 +28,8 @@ public class LoginController {
 
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest request) {
-        try {
+        logger.info("Login started");
+       try {
             EmployeeAuth user = loginService.login(request.getEmployeeId(), request.getPassword());
             String token = jwtUtils.generateToken(user.getEmployeeId(), user.getRole());
 

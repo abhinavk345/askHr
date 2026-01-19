@@ -36,7 +36,19 @@ public class EmployeeService {
                 .orElse("Not Assigned");
     }
 
-    /* ================= Chat Memory ================= */
+    public boolean validateCredentials(String employeeId, String password) {
+//        return employeeRepository.findByEmployeeId(employeeId)
+//                .map(employee -> {
+//                    // If using NoOpPasswordEncoder (plain text)
+//                   // return employee.getPassword().equals(password);
+//                    return employee.getPassword().equals(password);
+//
+//                    // If using BCrypt:
+//                    // return passwordEncoder.matches(password, employee.getPassword());
+//                })
+//                .orElse(false);
+        return true;
+    }
 
     public void clearChatMemory(String employeeId) {
         chatMemoryRepository.deleteByConversationId(employeeId);

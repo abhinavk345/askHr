@@ -34,6 +34,7 @@ services:
 
   ollama:
    image: ollama/ollama:latest
+
    container_name: ollama
    volumes:
     - C:/Users/273273/.ollama:/root/.ollama
