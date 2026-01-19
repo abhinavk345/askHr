@@ -1,0 +1,29 @@
+INSERT INTO EMPLOYEE (
+    CREATED_AT,
+    DATE_OF_JOINING,
+    DEPARTMENT,
+    DESIGNATION,
+    EMAIL,
+    EMPLOYEE_ID,
+    FULL_NAME,
+    MANAGER_EMPLOYEE_ID,
+    STATUS,
+    UPDATED_AT
+) VALUES
+(CURRENT_TIMESTAMP, '2023-05-01', 'HR', 'HR Manager', 'alice.hr@example.com', '1001', 'Alice Johnson', NULL, 'ACTIVE', CURRENT_TIMESTAMP),
+(CURRENT_TIMESTAMP, '2024-01-15', 'IT', 'Software Engineer', 'bob.it@example.com', '1002', 'Bob Smith', '1001', 'ACTIVE', CURRENT_TIMESTAMP),
+(CURRENT_TIMESTAMP, '2025-03-20', 'Finance', 'Accountant', 'carol.fin@example.com', '1003', 'Carol Davis', '1001', 'ACTIVE', CURRENT_TIMESTAMP),
+(CURRENT_TIMESTAMP, '2026-01-01', 'IT', 'Test User', 'abhinav.k@example.com', '273273', 'Abhinav Kumar', '1001', 'ACTIVE', CURRENT_TIMESTAMP);
+-- EMPLOYEE_AUTH table
+INSERT INTO EMPLOYEE_AUTH (
+    ID,
+    CREATED_AT,
+    EMPLOYEE_ID,
+    ENABLED,
+    LAST_LOGIN_AT,
+    PASSWORD_HASH,
+    ROLE,
+    USERNAME
+) VALUES
+(1, CURRENT_TIMESTAMP, '273273', TRUE, NULL,  '273273', 'ROLE_USER', '273273');
+

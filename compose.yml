@@ -33,11 +33,11 @@ services:
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    volumes:
-      - C:/Users/273273/.ollama:/root/.ollama
-    restart: unless-stopped
+   image: ollama/ollama:latest
+   container_name: ollama
+   volumes:
+    - C:/Users/273273/.ollama:/root/.ollama
+   restart: unless-stopped
 
 volumes:
   ollama:

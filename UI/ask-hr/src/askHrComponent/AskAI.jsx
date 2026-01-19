@@ -214,11 +214,11 @@ useEffect(() => {
 
     try {
       const res = await fetch(
-        `http://localhost:9091/askhr/api/v1/pdf/chat?message=${encodeURIComponent(userText)}`,
+        `http://localhost:9091/askhr/api/v1/search/chat?message=${encodeURIComponent(userText)}`,
         {
           method: "GET",
           signal: controller.signal,
-          headers: {
+          headers: {  
             emailId: email,
           },
         }

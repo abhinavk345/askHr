@@ -17,7 +17,7 @@ public class DataLoader {
         this.vectorStore = vectorStore;
     }
 
-    @PostConstruct
+   // @PostConstruct
     public void loadData(){
 //in real time we can uplaod data by job , schedular task
         List<String> hrLeavePolicy = List.of(

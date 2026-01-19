@@ -1,6 +1,7 @@
 package com.intech.ai.rag;
 
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
@@ -10,10 +11,11 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
+@Slf4j
 @Component
 public class HRPolicyLoader {
+
     private final VectorStore vectorStore;
 
     @Value("classpath:policy.pdf")
@@ -24,17 +26,29 @@ public class HRPolicyLoader {
     }
 
     @PostConstruct
-    public void checkPdfLoaded() {
-        System.out.println("Filename: " + policyPdf.getFilename());
-        System.out.println("URI: " + policyPdf);
-    }
+    public void loadPdfData() {
+        try {
+            if (!policyPdf.exists()) {
+                log.error("policy.pdf NOT FOUND in classpath");
+                return;
+            }
 
-    @PostConstruct
-    public void loadPdfData(){
-        TikaDocumentReader tikaDocumentReader=new TikaDocumentReader(policyPdf);
-        TokenTextSplitter splitter = new TokenTextSplitter(500,50,50,50,true);
-        List<Document> documentList = tikaDocumentReader.get();
-        List<Document> splitDocs = splitter.apply(documentList);
-        vectorStore.add(splitDocs);
+            log.info("Loading HR policy PDF: {}", policyPdf.getFilename());
+
+            TikaDocumentReader reader = new TikaDocumentReader(policyPdf);
+            TokenTextSplitter splitter =
+                    new TokenTextSplitter(500, 50, 50, 50, true);
+
+            List<Document> documents = reader.get();
+            List<Document> splitDocs = splitter.apply(documents);
+
+            vectorStore.add(splitDocs);
+
+            log.info(" HR Policy loaded into VectorStore. Chunks: {}", splitDocs.size());
+
+        } catch (Exception e) {
+            log.error("Failed to load HR policy PDF", e);
+
+        }
     }
 }

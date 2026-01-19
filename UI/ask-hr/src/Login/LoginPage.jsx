@@ -2,13 +2,14 @@ import Header from "./Header";
 import MapSection from "./MapSection";
 import LoginCard from "./LoginCard";
 import "./login.css";
-const LoginPage = (props) => {
+
+const LoginPage = ({ updateIsLogin }) => {
   return (
     <>
       <Header />
       <div className="login-layout">
         <MapSection />
-        <LoginCard updateIsLogin={props.updateIsLogin} />
+        <LoginCard updateIsLogin={updateIsLogin} />
       </div>
     </>
   );
