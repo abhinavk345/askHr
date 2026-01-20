@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/askhr/api/v1")
+@RequestMapping("/api/v1")
 public class AuthController {
 
     private final JwtService jwtService;
@@ -34,7 +34,7 @@ public class AuthController {
                     .body(Map.of("message", "Invalid credentials"));
         }
 
-        String token = jwtService.generateToken(request.getEmployeeId(), "ROLE_USER");
+        String token = jwtService.generateToken(request.getEmployeeId(), "USER");
 
         return ResponseEntity.ok(Map.of(
                 "message", "Login successful",

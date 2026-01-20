@@ -51,7 +51,8 @@ public class OllamaController {
         try {
             // 1️⃣ Greeting → static LLM call (no vector)
             if (HRUtility.isGreeting(message)) {
-                return executePrompt(greetingPrompt, null, emailId, message);
+                Flux<String> stringFlux = executePrompt(greetingPrompt, null, emailId, message);
+                return stringFlux;
             }
 
             // 2️⃣ Not HR related

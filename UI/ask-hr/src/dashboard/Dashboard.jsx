@@ -1,6 +1,5 @@
 import React from "react";
 import "./Dashboard.css";
-import NavbarRight from "../NavbarRight";
 
 const apps = [
   { name: "Appraisal", icon: "📊" },
@@ -23,11 +22,6 @@ const apps = [
 ];
 
 export default function Dashboard() {
-  const handleLogout = () => {
-  localStorage.clear(); // or remove specific token
-  window.location.href = "/login"; // or use navigate()
-};
-
   return (
     <div className="dashboard-root">
       {/* Top Navbar */}
@@ -39,7 +33,10 @@ export default function Dashboard() {
         </div>
 
         <div className="navbar-right">
-         <NavbarRight onLogout={handleLogout} />
+          <span className="dot" />
+          <span className="bell">🔔</span>
+          <span className="company">INTECH Creative Services Pvt Ltd</span>
+          <div className="avatar">A</div>
         </div>
       </div>
 
