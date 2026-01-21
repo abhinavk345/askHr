@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import "./Dashboard.css";
 
 const apps = [
@@ -22,6 +22,27 @@ const apps = [
 ];
 
 export default function Dashboard() {
+   const [open, setOpen] = useState(false);
+   const dropdownRef = useRef(null);
+
+  const handleLogout = () => {
+    // clear auth data
+    localStorage.clear(); // or remove specific token
+    sessionStorage.clear();
+
+    // redirect to login
+    window.location.href = "/login";
+  };
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []); 
+
   return (
     <div className="dashboard-root">
       {/* Top Navbar */}
@@ -36,7 +57,16 @@ export default function Dashboard() {
           <span className="dot" />
           <span className="bell">🔔</span>
           <span className="company">INTECH Creative Services Pvt Ltd</span>
-          <div className="avatar">A</div>
+          <div className="avatar" onClick={() => setOpen(!open)}>
+            A
+          </div>
+          {open && (
+            <div className="avatar-dropdown">
+              <div className="dropdown-item" onClick={handleLogout}>
+                🚪 Logout
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

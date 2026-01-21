@@ -1,50 +1,55 @@
-//package com.intech.ai.controller;
-//
-//import com.intech.ai.modal.EmployeeAuth;
-//import com.intech.ai.modal.LoginRequest;
-//import com.intech.ai.service.LoginService;
-//import com.intech.ai.utility.JwtUtils;
-//import org.slf4j.Logger;
-//import org.slf4j.LoggerFactory;
-//import org.springframework.http.HttpStatus;
-//import org.springframework.http.ResponseEntity;
-//import org.springframework.web.bind.annotation.*;
-//
-//import java.util.Map;
-////
-//@RestController
-//@RequestMapping("/api/v1")
-//public class LoginController {
-//
-//    private static final Logger logger = LoggerFactory.getLogger(LoginController.class);
-//
-//    private final LoginService loginService;
-//    private final JwtUtils jwtUtils;
-//
-//    public LoginController(LoginService loginService, JwtUtils jwtUtils) {
-//        this.loginService = loginService;
-//        this.jwtUtils = jwtUtils;
-//    }
-//
-//    @PostMapping("/login")
-//    public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest request) {
-//        logger.info("Login started");
-//       try {
-//            EmployeeAuth user = loginService.login(request.getEmployeeId(), request.getPassword());
-//            String token = jwtUtils.generateToken(user.getEmployeeId(), user.getRole());
-//
-//            logger.info("Login successful for user {}", user.getEmployeeId());
-//
-//            return ResponseEntity.ok(Map.of(
-//                    "message", "Login successful",
-//                    "employeeId", user.getEmployeeId(),
-//                    "role", user.getRole(),
-//                    "token", token
-//            ));
-//        } catch (RuntimeException e) {
-//            logger.warn("Login failed for {}: {}", request.getEmployeeId(), e.getMessage());
-//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-//                    .body(Map.of("message", e.getMessage()));
-//        }
-//    }
-//}
+package com.intech.ai.controller;
+
+import com.intech.ai.modal.Employee;
+import com.intech.ai.modal.LoginRequest;
+import com.intech.ai.service.EmployeeService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/v1")
+public class LoginController {
+
+    private final EmployeeService service;
+
+    public LoginController(EmployeeService service) {
+        this.service = service;
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody LoginRequest request) {
+
+        Employee emp = service.validateLogin(request.getEmployeeId(), request.getPassword());
+
+        if (emp == null) {
+            return ResponseEntity
+                    .status(401)
+                    .body(Map.of("message", "Invalid credentials"));
+        }
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "message", "Login successful",
+                        "employeeId", emp.getEmployeeId(),
+                        "name", emp.getFullName()
+                )
+        );
+    }
+
+    @GetMapping("/exists")
+    public ResponseEntity<?> checkEmployeeExists(
+            @RequestParam String employeeId) {
+
+        boolean exists = service.employeeExists(employeeId);
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "employeeId", employeeId,
+                        "exists", exists
+                )
+        );
+
+    }
+}

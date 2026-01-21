@@ -33,8 +33,8 @@ public class EmployeeAuth {
     private String username; // email or employeeId
 
     @JsonIgnore
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
+    @Column(name = "password", nullable = false)
+    private String password;
 
     @Column(nullable = false)
     private String role; // EMPLOYEE, MANAGER, HR, ADMIN

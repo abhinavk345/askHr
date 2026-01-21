@@ -4,7 +4,6 @@ import com.intech.ai.modal.Employee;
 import com.intech.ai.modal.EmployeeAuth;
 import com.intech.ai.repository.EmployeeAuthRepository;
 import com.intech.ai.repository.EmployeeRepository;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,15 +12,14 @@ public class EmployeeRegistrationService {
 
     private final EmployeeRepository employeeRepo;
     private final EmployeeAuthRepository authRepo;
-    private final PasswordEncoder passwordEncoder;
+
 
     public EmployeeRegistrationService(
             EmployeeRepository employeeRepo,
-            EmployeeAuthRepository authRepo,
-            PasswordEncoder passwordEncoder) {
+            EmployeeAuthRepository authRepo) {
         this.employeeRepo = employeeRepo;
         this.authRepo = authRepo;
-        this.passwordEncoder = passwordEncoder;
+
     }
 
     @Transactional
@@ -38,7 +36,7 @@ public class EmployeeRegistrationService {
         EmployeeAuth auth = new EmployeeAuth();
         auth.setEmployeeId(employee.getEmployeeId());
         auth.setUsername(username);
-        auth.setPasswordHash(passwordEncoder.encode(rawPassword));
+        auth.setPassword(rawPassword);
         auth.setRole(role);
 
         authRepo.save(auth);

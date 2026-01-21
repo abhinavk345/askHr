@@ -1,6 +1,8 @@
-package com.intech.ai.service;
+package com.intech.ai.tools;
 
 import com.intech.ai.modal.LeaveBalance;
+import com.intech.ai.service.LeaveService;
+import com.intech.ai.service.ToolAuditService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;

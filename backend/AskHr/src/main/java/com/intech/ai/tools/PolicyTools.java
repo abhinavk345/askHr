@@ -4,8 +4,6 @@ import com.intech.ai.service.PolicyService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
 @Component
 public class PolicyTools {
 
@@ -15,13 +13,8 @@ public class PolicyTools {
         this.policyService = policyService;
     }
 
-    @Tool(description = "List all HR policies")
-    public List<String> listPolicies() {
-        return policyService.getPolicies();
-    }
-
-    @Tool(description = "Get HR policy details by name")
-    public String getPolicy(String policyName) {
-        return policyService.getPolicy(policyName);
+    @Tool(description = "Answer HR policy related questions using official HR documents")
+    public String getPolicy(String question) throws Exception {
+        return policyService.answerPolicy(question);
     }
 }

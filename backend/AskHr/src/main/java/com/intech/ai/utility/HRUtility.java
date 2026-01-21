@@ -29,7 +29,6 @@ public class HRUtility {
                     ").*"
     );
 
-
     public static boolean isGreeting(String message) {
         return GREETING_PATTERN.matcher(message.trim()).matches();
     }
@@ -44,7 +43,4 @@ public class HRUtility {
                 .map(Document::getText)
                 .collect(Collectors.joining(System.lineSeparator()));
     }
-
-
-
 }

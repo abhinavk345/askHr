@@ -14,14 +14,15 @@ import java.util.List;
 
 @Slf4j
 @Component
-public class HRPolicyLoader {
+public class HrPolicyLoader {
 
     private final VectorStore vectorStore;
 
     @Value("classpath:policy.pdf")
     private Resource policyPdf;
 
-    public HRPolicyLoader(VectorStore vectorStore) {
+
+    public HrPolicyLoader(VectorStore vectorStore) {
         this.vectorStore = vectorStore;
     }
 

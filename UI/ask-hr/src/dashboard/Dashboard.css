@@ -47,6 +47,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  position: relative; /* IMPORTANT for dropdown */
 }
 
 .dot {
@@ -56,6 +57,7 @@ body {
   border-radius: 50%;
 }
 
+/* Avatar */
 .avatar {
   width: 32px;
   height: 32px;
@@ -65,6 +67,36 @@ body {
   align-items: center;
   justify-content: center;
   font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Avatar Dropdown */
+.avatar-dropdown {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+  min-width: 120px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.dropdown-item {
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dropdown-item:hover {
+  background-color: #f5f5f5;
 }
 
 /* Search */

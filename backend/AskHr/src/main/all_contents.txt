@@ -1,0 +1,3597 @@
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\all_contents.txt 
+------------------------------- 
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\all_contents.txt 
+------------------------------- 
+
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\AskHrApplication.java 
+------------------------------- 
+package com.intech.ai;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class AskHrApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(AskHrApplication.class, args);
+	}
+
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\config\AiChatClientBuilderConfig.java 
+------------------------------- 
+package com.intech.ai.config;
+
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class AiChatClientBuilderConfig {
+
+    @Bean
+    public ChatClient chatClient(ChatModel chatModel) {
+        return ChatClient.builder(chatModel).build();
+    }
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\config\AsyncConfig.java 
+------------------------------- 
+package com.intech.ai.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
+
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\config\CacheConfig.java 
+------------------------------- 
+package com.intech.ai.config;
+
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@EnableCaching
+public class CacheConfig {
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\config\GlobalCorsConfig.java 
+------------------------------- 
+package com.intech.ai.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.List;
+
+@Configuration
+public class GlobalCorsConfig implements WebMvcConfigurer {
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/**")
+                .allowedOrigins("http://localhost:3000")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .allowCredentials(true)
+                .maxAge(3600);
+    }
+
+
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("http://localhost:3000"));
+        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\controller\LoginController.java 
+------------------------------- 
+package com.intech.ai.controller;
+
+import com.intech.ai.modal.Employee;
+import com.intech.ai.modal.LoginRequest;
+import com.intech.ai.service.EmployeeService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/v1")
+public class LoginController {
+
+    private final EmployeeService service;
+
+    public LoginController(EmployeeService service) {
+        this.service = service;
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody LoginRequest request) {
+
+        Employee emp = service.validateLogin(request.getEmployeeId(), request.getPassword());
+
+        if (emp == null) {
+            return ResponseEntity
+                    .status(401)
+                    .body(Map.of("message", "Invalid credentials"));
+        }
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "message", "Login successful",
+                        "employeeId", emp.getEmployeeId(),
+                        "name", emp.getFullName()
+                )
+        );
+    }
+
+    @GetMapping("/exists")
+    public ResponseEntity<?> checkEmployeeExists(
+            @RequestParam String employeeId) {
+
+        boolean exists = service.employeeExists(employeeId);
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "employeeId", employeeId,
+                        "exists", exists
+                )
+        );
+
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\controller\OllamaController.java 
+------------------------------- 
+package com.intech.ai.controller;
+
+import com.intech.ai.utility.HRUtility;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Slf4j
+@CrossOrigin(origins = "http://localhost:3000")
+@RestController
+@RequestMapping("/api/v1")
+public class OllamaController {
+
+    private final ChatClient chatClient;
+    private final VectorStore vectorStore;
+
+    public OllamaController(ChatClient.Builder chatClientBuilder,
+                            VectorStore vectorStore) {
+
+        this.vectorStore = vectorStore;
+
+        // âœ… NO CHAT MEMORY (avoids slow prompt growth)
+        this.chatClient = chatClientBuilder.build();
+    }
+
+    /* ================= PROMPTS ================= */
+
+    @Value("classpath:/promptTemplates/system-greeting.st")
+    private Resource greetingPrompt;
+
+    @Value("classpath:/promptTemplates/system-no-docs.st")
+    private Resource noDocsPrompt;
+
+    @Value("classpath:/promptTemplates/system-with-docs.st")
+    private Resource withDocsPrompt;
+
+    @Value("classpath:/promptTemplates/system-fallback.st")
+    private Resource fallbackPrompt;
+
+    /* ================= SEARCH CHAT ================= */
+
+    @GetMapping("/search/chat")
+    public Flux<String> searchChat(
+            @RequestHeader(value = "emailId", required = false) String emailId,
+            @RequestParam String message) {
+
+        log.info("Search chat request: {}", message);
+
+        try {
+            // âš¡ 1ï¸âƒ£ GREETING BYPASS (NO LLM CALL)
+            if (HRUtility.isGreeting(message)) {
+                return Flux.just(
+                        "Hello! ğŸ‘‹ How can I help you with HR-related queries today?"
+                );
+            }
+
+            // 2ï¸âƒ£ Non-HR question
+            if (!HRUtility.isHRMessage(message)) {
+                return executePrompt(noDocsPrompt, null, message);
+            }
+
+            // 3ï¸âƒ£ Vector search
+            List<Document> docs = vectorStore.similaritySearch(
+                    SearchRequest.builder()
+                            .query(message)
+                            .topK(5)
+                            .similarityThreshold(0.6)
+                            .build()
+            );
+
+            if (docs.isEmpty()) {
+                return executePrompt(noDocsPrompt, null, message);
+            }
+
+            // 4ï¸âƒ£ Docs found
+            String context = docs.stream()
+                    .map(Document::getText)
+                    .collect(Collectors.joining("\n\n"));
+
+            return executePrompt(withDocsPrompt, context, message);
+
+        } catch (Exception ex) {
+            log.error("Chat processing failed", ex);
+            return executePrompt(fallbackPrompt, null, message);
+        }
+    }
+
+    private Flux<String> executePrompt(
+            Resource systemPrompt,
+            String documents,
+            String userMessage) {
+
+        var prompt = chatClient.prompt()
+                .system(ps -> {
+                    ps.text(systemPrompt);
+                    if (documents != null) {
+                        ps.param("documents", documents);
+                    }
+                })
+                .user(userMessage);
+
+        return prompt.stream().content();
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\Employee.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Entity
+@Table(
+        name = "employee",
+        indexes = {
+                @Index(name = "idx_employee_employee_id", columnList = "employeeId", unique = true),
+                @Index(name = "idx_employee_email", columnList = "email", unique = true)
+        }
+)
+public class Employee {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "employee_id", nullable = false, unique = true)
+    private String employeeId;
+
+    @Column(nullable = false)
+    private String fullName;
+
+    @Column(nullable = false, unique = true)
+    private String email;
+
+    private String department;
+    private String designation;
+
+    private String managerEmployeeId;
+
+    @Column(nullable = false)
+    private String status; // ACTIVE, INACTIVE, EXITED
+
+    private LocalDateTime dateOfJoining;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+
+    /* ================= JPA Hooks ================= */
+
+    @PrePersist
+    void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = createdAt;
+        if (status == null) status = "ACTIVE";
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\EmployeeAuth.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Entity
+@Table(
+    name = "employee_auth",
+    indexes = {
+        @Index(name = "idx_auth_employee_id", columnList = "employeeId", unique = true),
+        @Index(name = "idx_auth_username", columnList = "username", unique = true)
+    }
+)
+public class EmployeeAuth {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    // FK by business key (not DB id)
+    @Column(name = "employee_id", nullable = false, unique = true)
+    private String employeeId;
+
+    @Column(nullable = false, unique = true)
+    private String username; // email or employeeId
+
+    @JsonIgnore
+    @Column(name = "password", nullable = false)
+    private String password;
+
+    @Column(nullable = false)
+    private String role; // EMPLOYEE, MANAGER, HR, ADMIN
+
+    @Column(nullable = false)
+    private boolean enabled = true;
+
+    private LocalDateTime lastLoginAt;
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    void onCreate() {
+        createdAt = LocalDateTime.now();
+        if (role == null) role = "EMPLOYEE";
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\LeaveBalance.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Entity
+@Table(name = "leave_balance")
+public class LeaveBalance {
+
+  @Id
+  private String employeeId;
+
+  private int casualLeaves;
+  private int sickLeaves;
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\LeaveRequest.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Entity
+@Table(name = "leave_requests")
+public class LeaveRequest {
+
+    @Id
+    @GeneratedValue
+    private UUID id;
+
+    private String employeeId;
+    private String leaveType;
+
+    private LocalDate fromDate;
+    private LocalDate toDate;
+
+    private int totalDays;
+
+    private String reason;
+    private String status; // APPLIED, APPROVED, REJECTED
+
+    private LocalDateTime appliedAt;
+
+    // getters & setters
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\LoginRequest.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import lombok.Data;
+
+@Data
+public class LoginRequest {
+    private String employeeId;
+    private String password;
+
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\Ticket.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Entity
+@Table(name = "tickets")
+public class Ticket {
+
+    @Id
+    @GeneratedValue
+    private UUID id;
+
+    private String employeeId;
+    private String category;
+    private String description;
+    private String status;
+
+    private LocalDateTime createdAt;
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\TicketResponse.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Entity
+@Table(name = "ticketResponse")
+public class TicketResponse {
+
+  @Id
+  private  String ticketId;
+  private String status;
+  private String category;
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\modal\ToolAuditLog.java 
+------------------------------- 
+package com.intech.ai.modal;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Entity
+@Table(name = "tool_audit_log")
+public class ToolAuditLog {
+
+    @Id
+    @GeneratedValue
+    private UUID id;
+
+    private String toolName;
+    private String employeeId;
+
+    @Column(columnDefinition = "TEXT")
+    private String input;
+
+    @Column(columnDefinition = "TEXT")
+    private String output;
+
+    private String status;
+    private LocalDateTime executedAt;
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\rag\HrPolicyLoader.java 
+------------------------------- 
+package com.intech.ai.rag;
+
+import jakarta.annotation.PostConstruct;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.reader.tika.TikaDocumentReader;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.stereotype.Component;
+
+import java.util.Collections;
+import java.util.List;
+
+@Slf4j
+@Component
+public class HrPolicyLoader {
+
+    private final VectorStore vectorStore;
+
+    @Value("classpath:policy.pdf")
+    private Resource policyPdf;
+
+    // Cached documents and embeddings
+    @Getter
+    private List<Document> cachedDocuments = Collections.emptyList();
+
+    public HrPolicyLoader(VectorStore vectorStore) {
+        this.vectorStore = vectorStore;
+    }
+
+    @PostConstruct
+    public void loadPdfData() {
+        try {
+            if (!policyPdf.exists()) {
+                log.error("policy.pdf NOT FOUND in classpath");
+                return;
+            }
+
+            log.info("Loading HR policy PDF: {}", policyPdf.getFilename());
+
+            // 1ï¸âƒ£ Read PDF
+            TikaDocumentReader reader = new TikaDocumentReader(policyPdf);
+            List<Document> documents = reader.get();
+
+            // 2ï¸âƒ£ Split into chunks
+            TokenTextSplitter splitter = new TokenTextSplitter(500, 50, 50, 50, true);
+            List<Document> splitDocs = splitter.apply(documents);
+
+            // 3ï¸âƒ£ Cache in memory
+            cachedDocuments = splitDocs;
+
+            // 4ï¸âƒ£ Add to vector store (precompute embeddings)
+            vectorStore.add(splitDocs);
+
+            log.info("HR Policy loaded, embeddings cached. Chunks: {}", splitDocs.size());
+
+        } catch (Exception e) {
+            log.error("Failed to load HR policy PDF", e);
+        }
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\repository\EmployeeAuthRepository.java 
+------------------------------- 
+package com.intech.ai.repository;
+
+import com.intech.ai.modal.EmployeeAuth;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface EmployeeAuthRepository
+        extends JpaRepository<EmployeeAuth, Long> {
+
+    Optional<EmployeeAuth> findByUsername(String username);
+    Optional<EmployeeAuth> findByEmployeeId(String employeeId);
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\repository\EmployeeRepository.java 
+------------------------------- 
+package com.intech.ai.repository;
+
+import com.intech.ai.modal.Employee;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+
+public interface EmployeeRepository extends JpaRepository<Employee, Long> {
+
+    Optional<Employee> findByEmployeeId(String employeeId);
+    Optional<Employee> findByEmail(String email);
+    boolean existsByEmployeeId(String employeeId);
+}
+
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\repository\LeaveBalanceRepository.java 
+------------------------------- 
+package com.intech.ai.repository;
+
+import com.intech.ai.modal.LeaveBalance;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface LeaveBalanceRepository extends JpaRepository<LeaveBalance, String> {}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\repository\LeaveRequestRepository.java 
+------------------------------- 
+package com.intech.ai.repository;
+
+import com.intech.ai.modal.LeaveRequest;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.UUID;
+
+public interface LeaveRequestRepository
+        extends JpaRepository<LeaveRequest, UUID> {
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\repository\TicketRepository.java 
+------------------------------- 
+package com.intech.ai.repository;
+
+import com.intech.ai.modal.Ticket;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.UUID;
+
+public interface TicketRepository extends JpaRepository<Ticket, UUID> {}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\repository\ToolAuditLogRepository.java 
+------------------------------- 
+package com.intech.ai.repository;
+
+import com.intech.ai.modal.ToolAuditLog;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.UUID;
+
+public interface ToolAuditLogRepository  extends JpaRepository<ToolAuditLog, UUID> {}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\AiChatService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class AiChatService {
+
+    private final ChatClient chatClient;
+
+    public AiChatService(ChatClient chatClient) {
+        this.chatClient = chatClient;
+    }
+
+    @Async
+    public CompletableFuture<String> ask(String prompt) {
+        return CompletableFuture.completedFuture(
+                chatClient
+                        .prompt()
+                        .user(prompt)
+                        .call()
+                        .content());
+    }
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\EmployeeRegistrationService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import com.intech.ai.modal.Employee;
+import com.intech.ai.modal.EmployeeAuth;
+import com.intech.ai.repository.EmployeeAuthRepository;
+import com.intech.ai.repository.EmployeeRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class EmployeeRegistrationService {
+
+    private final EmployeeRepository employeeRepo;
+    private final EmployeeAuthRepository authRepo;
+
+
+    public EmployeeRegistrationService(
+            EmployeeRepository employeeRepo,
+            EmployeeAuthRepository authRepo) {
+        this.employeeRepo = employeeRepo;
+        this.authRepo = authRepo;
+
+    }
+
+    @Transactional
+    public void registerEmployee(
+            Employee employee,
+            String username,
+            String rawPassword,
+            String role) {
+
+        // 1ï¸âƒ£ Save employee profile
+        employeeRepo.save(employee);
+
+        // 2ï¸âƒ£ Create auth record
+        EmployeeAuth auth = new EmployeeAuth();
+        auth.setEmployeeId(employee.getEmployeeId());
+        auth.setUsername(username);
+        auth.setPassword(rawPassword);
+        auth.setRole(role);
+
+        authRepo.save(auth);
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\EmployeeService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import com.intech.ai.modal.Employee;
+import com.intech.ai.modal.EmployeeAuth;
+import com.intech.ai.repository.EmployeeAuthRepository;
+import com.intech.ai.repository.EmployeeRepository;
+import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+
+
+@Service
+public class EmployeeService {
+
+    private final JdbcChatMemoryRepository chatMemoryRepository;
+    private final EmployeeRepository employeeRepository;
+    private final EmployeeAuthRepository employeeAuthRepository;
+
+    public EmployeeService(JdbcChatMemoryRepository chatMemoryRepository,
+                           EmployeeRepository employeeRepository,
+                           EmployeeAuthRepository employeeAuthRepository) {
+        this.chatMemoryRepository = chatMemoryRepository;
+        this.employeeRepository = employeeRepository;
+        this.employeeAuthRepository = employeeAuthRepository;
+    }
+
+    /* ================= Employee Profile ================= */
+
+    public boolean employeeExists(String employeeId) {
+        return employeeRepository.existsByEmployeeId(employeeId);
+    }
+
+    public Employee getEmployeeByEmployeeId(String employeeId) {
+        return employeeRepository.findByEmployeeId(employeeId)
+                .orElseThrow(() ->
+                        new RuntimeException("Employee not found: " + employeeId));
+    }
+
+    public String getManagerName(String employeeId) {
+        return employeeRepository.findByEmployeeId(employeeId)
+                .map(Employee::getManagerEmployeeId)
+                .orElse("Not Assigned");
+    }
+
+
+    public void clearChatMemory(String employeeId) {
+        chatMemoryRepository.deleteByConversationId(employeeId);
+    }
+
+    public Employee validateLogin(String employeeId, String password) {
+
+        Optional<EmployeeAuth> authOpt =
+                employeeAuthRepository.findByEmployeeId(employeeId);
+
+        if (authOpt.isEmpty()) {
+            return null;
+        }
+
+        EmployeeAuth auth = authOpt.get();
+
+        // check account enabled
+        if (!auth.isEnabled()) {
+            return null;
+        }
+
+        // plain password comparison (NOT secure)
+        if (!password.equals(auth.getPassword())) {
+            return null;
+        }
+
+        return employeeRepository
+                .findByEmployeeId(employeeId)
+                .orElse(null);
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\JwtService.java 
+------------------------------- 
+package com.intech.ai.service;import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+
+@Service
+public class JwtService {
+
+    // 32+ characters = 256+ bits
+    private static final String SECRET =
+            "askhr-super-secure-jwt-signing-key-256bit";
+
+    private static final long EXPIRATION = 1000 * 60 * 60;
+
+    private final SecretKey key =
+            Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+
+    public String generateToken(String employeeId, String role) {
+        return Jwts.builder()
+                .setSubject(employeeId)
+                .claim("role", role) // USER
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION))
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    public String extractUsername(String token) {
+        return extractAllClaims(token).getSubject();
+    }
+
+    public String extractRole(String token) {
+        return extractAllClaims(token).get("role", String.class);
+    }
+
+    public boolean isTokenValid(String token) {
+        try {
+            extractAllClaims(token);
+            return true;
+        } catch (JwtException e) {
+            return false;
+        }
+    }
+
+    private Claims extractAllClaims(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\LeaveService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import com.intech.ai.modal.LeaveBalance;
+import com.intech.ai.modal.LeaveRequest;
+import com.intech.ai.repository.LeaveBalanceRepository;
+import com.intech.ai.repository.LeaveRequestRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+
+@Service
+public class LeaveService {
+
+
+    private final LeaveBalanceRepository balanceRepo;
+    private final LeaveRequestRepository requestRepo;
+
+    public LeaveService(LeaveBalanceRepository repo, LeaveBalanceRepository balanceRepo, LeaveRequestRepository requestRepo) {
+        this.balanceRepo = balanceRepo;
+        this.requestRepo = requestRepo;
+
+    }
+
+    public LeaveBalance getLeaveBalance(String employeeId) {
+        return balanceRepo.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Leave balance not found"));
+    }
+
+    @Transactional
+    public void applyLeave(
+            String employeeId,
+            String leaveType,
+            LocalDate fromDate,
+            LocalDate toDate,
+            String reason) {
+
+        // 1ï¸âƒ£ Validate dates
+        if (fromDate.isAfter(toDate)) {
+            throw new IllegalArgumentException("From date cannot be after To date");
+        }
+
+        int totalDays = (int) ChronoUnit.DAYS.between(fromDate, toDate) + 1;
+
+        // 2ï¸âƒ£ Get leave balance
+        LeaveBalance balance = balanceRepo.findById(employeeId)
+                .orElseThrow(() -> new RuntimeException("Leave balance not found"));
+
+        // 3ï¸âƒ£ Deduct balance
+        if ("CASUAL".equalsIgnoreCase(leaveType)) {
+            if (balance.getCasualLeaves() < totalDays) {
+                throw new RuntimeException("Insufficient casual leave balance");
+            }
+            balance.setCasualLeaves(balance.getCasualLeaves() - totalDays);
+        } else if ("SICK".equalsIgnoreCase(leaveType)) {
+            if (balance.getSickLeaves() < totalDays) {
+                throw new RuntimeException("Insufficient sick leave balance");
+            }
+            balance.setSickLeaves(balance.getSickLeaves() - totalDays);
+        } else {
+            throw new RuntimeException("Unsupported leave type");
+        }
+
+        // 4ï¸âƒ£ Save updated balance
+        balanceRepo.save(balance);
+
+        // 5ï¸âƒ£ Create leave request
+        LeaveRequest request = new LeaveRequest();
+        request.setEmployeeId(employeeId);
+        request.setLeaveType(leaveType.toUpperCase());
+        request.setFromDate(fromDate);
+        request.setToDate(toDate);
+        request.setTotalDays(totalDays);
+        request.setReason(reason);
+        request.setStatus("APPLIED");
+        request.setAppliedAt(LocalDateTime.now());
+
+        requestRepo.save(request);
+    }
+}
+
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\LoginService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import com.intech.ai.modal.EmployeeAuth;
+import com.intech.ai.repository.EmployeeAuthRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+
+@Service
+public class LoginService {
+
+    private static final Logger logger = LoggerFactory.getLogger(LoginService.class);
+
+    private final EmployeeAuthRepository authRepo;
+
+
+    public LoginService(EmployeeAuthRepository authRepo ) {
+        this.authRepo = authRepo;
+    }
+
+
+    public EmployeeAuth login(String username, String rawPassword) {
+        EmployeeAuth auth = authRepo.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        logger.info("auth detail:{} {}", auth.getEmployeeId(),auth.getPassword());
+        if (!auth.isEnabled()) {
+            throw new RuntimeException("Account disabled");
+        }
+
+        boolean matches = rawPassword.equals(auth.getPassword());
+        logger.info("matched:{}",matches);
+        if (!matches) {
+            throw new RuntimeException("Invalid credentials");
+        }
+
+        auth.setLastLoginAt(LocalDateTime.now());
+        authRepo.save(auth);
+
+        logger.info("User {} logged in successfully at {}", username, auth.getLastLoginAt());
+        return auth;
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\PolicyService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class PolicyService {
+
+    private final VectorStore vectorStore;
+    private final AiChatService aiChatService;
+
+    public String answerPolicy(String question) throws Exception {
+
+        // 1ï¸âƒ£ Retrieve TOP 3 relevant policy chunks
+        List<Document> documents = vectorStore.similaritySearch(question);
+
+        if (documents.isEmpty()) {
+            return "Sorry, I could not find relevant HR policy information.";
+        }
+
+        // 2ï¸âƒ£ Build context
+        String context = documents.stream()
+                .map(Document::getText)
+                .collect(Collectors.joining("\n\n"));
+
+        // 3ï¸âƒ£ RAG prompt
+        String prompt = """
+                You are an HR assistant.
+                Answer strictly using the HR policy context below.
+                If the answer is not present, say "Not specified in HR policy".
+
+                Context:
+                %s
+
+                Question:
+                %s
+                """.formatted(context, question);
+
+        // 4ï¸âƒ£ LLM call
+        return aiChatService.ask(prompt).get();
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\TicketService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import com.intech.ai.modal.Ticket;
+import com.intech.ai.repository.TicketRepository;
+import org.springframework.stereotype.Service;
+
+import java.util.UUID;
+
+@Service
+public class TicketService {
+
+    private final TicketRepository ticketRepository;
+
+    public TicketService(TicketRepository ticketRepository) {
+        this.ticketRepository = ticketRepository;
+    }
+
+    public Ticket createTicket(String employeeId, String subject, String message) {
+        Ticket ticket = new Ticket();
+        ticket.setEmployeeId(employeeId);
+        ticket.setSubject(subject);
+        ticket.setMessage(message);
+        return ticketRepository.save(ticket);
+    }
+
+    public List<Ticket> getTicketsByEmployee(String employeeId) {
+        return ticketRepository.findByEmployeeId(employeeId);
+    }
+
+    public List<Ticket> getAllTickets() {
+        return ticketRepository.findAll();
+    }
+}.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\service\ToolAuditService.java 
+------------------------------- 
+package com.intech.ai.service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intech.ai.modal.ToolAuditLog;
+import com.intech.ai.repository.ToolAuditLogRepository;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+
+@Service
+public class ToolAuditService {
+
+    private final ToolAuditLogRepository repo;
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    public ToolAuditService(ToolAuditLogRepository repo) {
+        this.repo = repo;
+    }
+
+    public void logSuccess(
+            String toolName,
+            String employeeId,
+            Object input,
+            Object output) {
+
+        save(toolName, employeeId, input, output, "SUCCESS");
+    }
+
+    public void logFailure(
+            String toolName,
+            String employeeId,
+            Object input,
+            Exception ex) {
+
+        save(toolName, employeeId, input, ex.getMessage(), "FAILED");
+    }
+
+    private void save(
+            String toolName,
+            String employeeId,
+            Object input,
+            Object output,
+            String status) {
+
+        try {
+            ToolAuditLog log = new ToolAuditLog();
+            log.setToolName(toolName);
+            log.setEmployeeId(employeeId);
+            log.setInput(mapper.writeValueAsString(input));
+            log.setOutput(mapper.writeValueAsString(output));
+            log.setStatus(status);
+            log.setExecutedAt(LocalDateTime.now());
+
+            repo.save(log);
+        } catch (Exception ignored) {}
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\tools\EmployeeTools.java 
+------------------------------- 
+package com.intech.ai.tools;
+
+import com.intech.ai.modal.Employee;
+import com.intech.ai.service.EmployeeService;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.stereotype.Component;
+
+@Component
+public class EmployeeTools {
+
+    private final EmployeeService employeeService;
+
+    public EmployeeTools(EmployeeService employeeService) {
+        this.employeeService = employeeService;
+    }
+
+    @Tool(description = "Get employee profile details")
+    public Employee getEmployeeProfile(
+            @ToolParam(description = "Employee ID") String employeeId) {
+
+        return employeeService.getEmployeeByEmployeeId(employeeId);
+    }
+
+    @Tool(description = "Get reporting manager of an employee")
+    public String getReportingManager(String employeeId) {
+        return employeeService.getManagerName(employeeId);
+    }
+
+    @Tool(description = "Get employee manager name")
+    public String getManager(String employeeId) {
+        return employeeService.getManagerName(employeeId);
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\tools\LeaveTools.java 
+------------------------------- 
+package com.intech.ai.tools;
+
+import com.intech.ai.modal.LeaveBalance;
+import com.intech.ai.service.LeaveService;
+import com.intech.ai.service.ToolAuditService;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDate;
+import java.util.Map;
+
+@Component
+public class LeaveTools {
+
+    private final LeaveService leaveService;
+    private final ToolAuditService auditService;
+
+    public LeaveTools(
+            LeaveService leaveService,
+            ToolAuditService auditService) {
+        this.leaveService = leaveService;
+        this.auditService = auditService;
+    }
+
+    @Tool(description = "Get leave balance of an employee")
+    public LeaveBalance getLeaveBalance(String employeeId) {
+        try {
+            LeaveBalance result = leaveService.getLeaveBalance(employeeId);
+            auditService.logSuccess(
+                    "getLeaveBalance",
+                    employeeId,
+                    employeeId,
+                    result);
+            return result;
+        } catch (Exception ex) {
+            auditService.logFailure(
+                    "getLeaveBalance",
+                    employeeId,
+                    employeeId,
+                    ex);
+            throw ex;
+        }
+    }
+
+    @Tool(description = "Apply leave for an employee")
+    public String applyLeave(
+            @ToolParam(description = "Employee ID") String employeeId,
+            @ToolParam(description = "Leave type e.g. Casual, Sick") String leaveType,
+            @ToolParam(description = "Leave start date (yyyy-MM-dd)") String fromDate,
+            @ToolParam(description = "Leave end date (yyyy-MM-dd)") String toDate,
+            @ToolParam(description = "Reason for leave") String reason) {
+
+        Map<String, Object> input = Map.of(
+                "employeeId", employeeId,
+                "leaveType", leaveType,
+                "fromDate", fromDate,
+                "toDate", toDate,
+                "reason", reason
+        );
+
+        try {
+            leaveService.applyLeave(
+                    employeeId,
+                    leaveType,
+                    LocalDate.parse(fromDate),
+                    LocalDate.parse(toDate),
+                    reason
+            );
+
+            auditService.logSuccess(
+                    "applyLeave",
+                    employeeId,
+                    input,
+                    "LEAVE_APPLIED"
+            );
+
+            return "âœ… Leave applied successfully from " + fromDate + " to " + toDate;
+
+        } catch (Exception ex) {
+
+            auditService.logFailure(
+                    "applyLeave",
+                    employeeId,
+                    input,
+                    ex
+            );
+
+            throw ex;
+        }
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\tools\PolicyTools.java 
+------------------------------- 
+package com.intech.ai.tools;
+
+import com.intech.ai.service.PolicyService;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.stereotype.Component;
+
+@Component
+public class PolicyTools {
+
+    private final PolicyService policyService;
+
+    public PolicyTools(PolicyService policyService) {
+        this.policyService = policyService;
+    }
+
+    @Tool(description = "Answer HR policy related questions using official HR documents")
+    public String getPolicy(String question) throws Exception {
+        return policyService.answerPolicy(question);
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\tools\TicketTools.java 
+------------------------------- 
+package com.intech.ai.tools;
+
+import com.intech.ai.modal.TicketResponse;
+import com.intech.ai.service.TicketService;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.stereotype.Component;
+
+@Component
+public class TicketTools {
+
+    private final TicketService ticketService;
+
+    public TicketTools(TicketService ticketService) {
+        this.ticketService = ticketService;
+    }
+
+    @Tool(description = "Raise HR or IT support ticket")
+    public TicketResponse raiseTicket(
+            String employeeId,
+            String category,
+            String description) {
+
+        return ticketService.createTicket(employeeId, category, description);
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\utility\HRUtility.java 
+------------------------------- 
+package com.intech.ai.utility;
+
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
+import reactor.core.publisher.Flux;
+
+import java.util.List;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+public class HRUtility {
+
+    private static final Pattern GREETING_PATTERN = Pattern.compile(
+            "(?i)^(hi|hello|hey|good morning|good afternoon|good evening).*$"
+    );
+
+    // HR intent detection
+    private static final Pattern HR_PATTERN = Pattern.compile(
+            "(?i).*(" +
+                    "hr|human resources|employee|employment|" +
+                    "leave|leaves|pl|nbl|lwp|maternity|paternity|medical|" +
+                    "holiday|attendance|working hours|shift|" +
+                    "policy|code of conduct|disciplinary|" +
+                    "probation|promotion|resignation|notice period|" +
+                    "harassment|posh|benefits|grievance|approval" +
+                    ").*"
+    );
+
+    public static boolean isGreeting(String message) {
+        return GREETING_PATTERN.matcher(message.trim()).matches();
+    }
+
+    public static boolean isHRMessage(String message) {
+        return HR_PATTERN.matcher(message).matches();
+    }
+
+
+    public static String joinDocuments(List<Document> docs) {
+        return docs.stream()
+                .map(Document::getText)
+                .collect(Collectors.joining(System.lineSeparator()));
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\java\com\intech\ai\utility\IntentDetector.java 
+------------------------------- 
+package com.intech.ai.utility;
+
+public class IntentDetector {
+
+    public static boolean isLeaveOrTicketRequest(String message) {
+        String m = message.toLowerCase();
+        return m.contains("leave")
+                || m.contains("jira")
+                || m.contains("ticket")
+                || m.contains("apply leave");
+    }
+
+    public static boolean isPolicyQuery(String message) {
+        String m = message.toLowerCase();
+        return m.contains("policy")
+                || m.contains("hr")
+                || m.contains("leave policy");
+    }
+}
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\application.properties 
+------------------------------- 
+spring.application.name=AskHr
+
+server.port=9091
+server.servlet.context-path=/askhr
+
+# ---- Ollama (HOST) ----
+spring.ai.model.chat=ollama
+spring.ai.ollama.base-url=http://host.docker.internal:11434
+#spring.ai.ollama.chat.options.model=gemma:2b
+spring.ai.ollama.chat.options.model=llama3
+spring.ai.ollama.embedding.model=mxbai-embed-large
+
+# ---- Logging ----
+logging.level.org.springframework.ai.chat.client.advisor=DEBUG
+logging.pattern.console=%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n
+
+# ---- Encoding ----
+server.servlet.encoding.charset=UTF-8
+server.servlet.encoding.enabled=true
+server.servlet.encoding.force=true
+spring.webflux.charset=UTF-8
+
+# ---- H2 DB ----
+spring.datasource.url=jdbc:h2:file:C:/Users/273273/Desktop/project/Fullstack/AskHr/backend/dbConfig/chatmemory;AUTO_SERVER=true
+spring.datasource.driver-class-name=org.h2.Driver
+spring.datasource.username=abhinav
+spring.datasource.password=kumar
+
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.jpa.hibernate.ddl-auto=create-drop
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+
+spring.h2.console.enabled=true
+spring.h2.console.settings.web-allow-others=true
+spring.h2.console.path=/h2-console
+spring.security.headers.frame=false
+
+spring.sql.init.mode=always
+spring.jpa.defer-datasource-initialization=true
+
+###############vector db Qdrant  #################
+spring.ai.vectorstore.qdrant.host=localhost
+spring.ai.vectorstore.qdrant.grpc-port=6334
+spring.ai.vectorstore.qdrant.http-port=6333
+spring.ai.vectorstore.qdrant.use-grpc=true
+spring.ai.vectorstore.qdrant.check-compatibility=false
+# ---- Chat Memory ----
+spring.ai.chat.memory.repository.jdbc.initialize-schema=always
+
+# ---- Docker Compose ----
+spring.docker.compose.enabled=false
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\data.sql 
+------------------------------- 
+INSERT INTO employee_auth (
+    employee_id,
+    username,
+    password,
+    role,
+    enabled
+)
+VALUES (
+    '273273',
+    'abhinav.kumar@company.com',
+    '273273',
+    'EMPLOYEE',
+    true
+);
+
+INSERT INTO employee (
+    employee_id,
+    full_name,
+    email,
+    department,
+    designation,
+    manager_employee_id,
+    status,
+    date_of_joining
+)
+VALUES (
+    '273273',
+    'Abhinav Kumar',
+    'abhinav.kumar@company.com',
+    'Engineering',
+    'Senior Developer',
+    '272272',
+    'ACTIVE',
+    NOW()
+);
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\policy.pdf 
+------------------------------- 
+%PDF-1.4
+%Óëéá
+1 0 obj
+<</Creator (Chromium)
+/Producer (Skia/PDF m143)
+/CreationDate (D:20260113093955+00'00')
+/ModDate (D:20260113093955+00'00')>>
+endobj
+3 0 obj
+<</ca 1
+/BM /Normal>>
+endobj
+6 0 obj
+<</CA 1
+/ca 1
+/LC 0
+/LJ 0
+/LW 1
+/ML 4
+/SA true
+/BM /Normal>>
+endobj
+8 0 obj
+<</Type /Annot
+/Subtype /Link
+/F 4
+/Border [0 0 0]
+/Rect [104.25 14.6699829 157.5 25.169983]
+/A <</Type /Action
+/S /URI
+/URI (https://kome.ai/)>>>>
+endobj
+9 0 obj
+<</Filter /FlateDecode
+/Length 5126>> stream
+xœµœY¯dÇmÇßï§8I€ôÔ^,@0Ó£òà ¶È³1±œ‘)2°ò_KwKFl@¾wxî©…dı‹µÜœ/õ—¹Ìõ7ø'{+¶º¾üğöÓ›óáæs¼ä§±é–]®¿ùBáúùOoÿò×o?½ù›u±Ù~[_şòÃ›©ÿğíÕ~ùùÏoï¾õ×Ÿÿçíİ?ÿ×ßıòó_¾ür}õÕ»ßİÿéãe®¯¿şğñşöáóÛ»Oá²éúüı›mM¶]>\ŸxûÊ7&:c"c¼1!£1ÿmÛïîƒ1>‚<µÿÂ½ÿõïù÷úw¥—ßßswc¼5ÆgcãR+Ÿ¹Ü~wÁÛëÆv²F;kİ¾?·Ú¦ûÏO½Ù˜xïíêm®åäö.ö·–ù¾—?úÌ¿›V—Yë»7y ¯¯ÏÿñöÍç‡*ÔUCë†4=÷æ@ók³ú³8º1şöt#ª)j3ºÚGY£{áƒšÍè>õ÷¸Œ¢ã{Cuµî^gìª¯u”ş<Ïõ‡nQÓ{5%›–İb¨»–ùB'j²Wj&7Ô<¼%ƒGdí¢¨=áQ·?ŸÇİ¼?÷J1Í¨7è(YMTË¶óèa‹wÎªéeÙş,ƒG—öSFCè&êæ·v¨õ›ßİO<±È“xy·hİÆÔÕÎãèoù_õNÛáÁÿåÉ#msfÀÎÅŸÆ»:
+ê¿ùYi¿³Ü|èuÅö7æjrt¹¯Ş\¾ÕO@ı÷Í—Löb™ó”S•e2¡°,g›|¼\H7È„ë¿lñ%Ti´1ÿe0.9WeX`õ6_.ô_ùU~fŒuUÊo\®QªˆÎ,«•¥*ã&Ô—k³¢iRnlº\k¾óMÖúÄÍ%~!Ü’q6OÃÍÙˆ°£hTçømB¯®7Ìßl,…<´ßİ(SÊeî¨»Å’}¢wóTË•¹›säc™•ën&'k	Í`ærÕ–_Şğaëom“Òú§êZ{;{³jo}m–´¼õvîcû55‰2ÚKüõW¥Õ¢¹£]½TeµÍ8bˆŞÜæš]3¼™Åêò"8T®%”Fƒ¯B÷À¥Eàú¢0$ XNb‚|0u;şÛÛ÷'¹§qQ0—‹fDFƒ·ãaú÷Ä@4`ÇYyZYÏíÇö
+°@ó'Ó=ø”Ÿ>Ñƒõ; ô;…‘‹|^{t7¾[ò¿%aÿÌó£áû†Y‘yPwŠQú‡jşà8º¼±I½±ÕK¤,ZAê«®j'²”]ÕHYF¾”şé?°”¥Á8Úâñ,ãÂŒ–ål#M0e)7ØL«¬Ôº¹Éa‚)<”1…L§ê„Ğ0át@H3uU˜JéäÕ	á&%Áv·š«Ezcj—Ã…e˜§¥Ô.{äi);OK©ÈÓB'ÚyZhçi¡Ú?ó´ĞÎÓş],4ó´Š…§ú¢ò«Pjc”§Úhå)vOyªŠPªÂ”§¨XUfã)˜ŠºğÔ¿â©7†ÎÇ>%àØúa<±qøØÿ~ÄÄãçûş|°˜2ÄÃ820Íê1÷ø™’<©Ï~Øz÷mâ©7Ó+™Ë;ci
+Lüï6XÄz®’6Zbi1Q¹|÷Öo,ÕtÔ¤mÆRMlc•µqKs–i|©º¡*mc?Rs¯\e\xdYuÄööˆcn.ëª´q17§n¢Š§È%±ÃÇÔ¾¶¦6^¦2bYse±:f!lV¬œ36?´Aæ†:(RB•„:xŠCÕ…†7+9´iÑ~7Z¨ıò†ÏBXÆˆD°¶JÊ­6iW‹nêÛÒşÆ';õ´‘Ì7=‰NóÜ…ºkXD%;AZcuh5×Œéšñ‡¡Yª ïÏ@à]ÒğBi2ø+t<[Ô #@Ôc«ƒJ,PvKõqÉìúîIª,<EXv—÷#$t=ÛQÃ¢Ó÷_•g!˜†‡ğóŒ—n4ÀK³ÜŒ—n¹/İr	ñR-‡¶¿ÎlioÌlé%OlémXØÒ‹lI¦:b23UX¬Üß+àê½‚0ódty¢MÖQ†ÓñØu ƒV¥ÃUª PåûİD¡šo‚Iïê“Şa7ÕO0é=`Ò{¦n	P!a‡I/aÒ[±Àd´aCµaLªTMv˜`àNa‡‰6:~,j ;LP±:„Äe·T…¯`_Â$ü¤ó¼tÈş%< 
+•(TV P©>PmÅœ€RÌ¯³Ç+Å˜RìÎ”bw¦{bJ±SŠ…x¥¸™,úPZËïÇÊt˜h³t8ióuàaGuˆªJt(«êtĞ£’j¿-TƒNˆ!ÚC´Ç+”kŸgÂPî“h>å0”N„¡Ô'. :J}‚£:¦T‘fÂPÚ	SÍ[ ašÑ‡#è{ê2Xƒ:—6EP›¬îŠSÇV5è PuéP½ê¢=Z;õQù
+0é%`Š,íáGüÀÅ/9œàÊ”Ã	®¬95?Öyiğìñ¹Í¥eËÒ5‡Ã²5‡|mub¢³g–ò¸Ä„8Ë’-®À|œeœT‰S‡¥Ü`HáTÑHáï¦<”´–!œ©2ÉD@³$cÍ—ÜÆÔQÉ‚€Jz®'9•IÅ’}cØİf®Ú38ÁÑ–ÁaÙšÁ	.o–­–­œàÒ!ƒÃÒ5ƒÃ²5ƒÃ²=ƒÃÒ5ƒx­!Ö˜Áibñ}Q=«PßÒÆ¨j£Õ[±{ê×ªõU˜T,Œ)Ú28`*êv|ÁÉ¯28Aö
+¸'+–’Å1 C À‚pèkæcñøUv%D?E+!ú%ZaÉ­„ÄçÖ,]£–­ÑJàZmú¡`i—úAaÙ­°lVXºD+U4¢•Ó­ÀCù@BãK:U&Ÿ\h–|š¡ùòŸ:*Ÿ{P‰„ :‰&%K¤æğ»ÑB5(F+!º-ZaÙ­„h÷h……k´Â²5Z	Ñ¢–®ó!–-ó!íó!–®ÑJˆ¦ÙÒ`´Ò¤êf‹V¦À¹Ì6‚&ƒ»šC´j€`·hõªCÊmÑŠÚ©ÊWÑ
+½ŠV‚ìŠù-¹•=Y€As:6ĞšeÉ:¥cYºæKX6åKr±,]ç6,ÛhA§\,KWZäbùË6Ñ‚ö\,”!L§\,4K‡í¹Ø©£:Üº>tLªÒtğÒ)†ğ»¹B5å„
+Ú±,[s'N‰X–®¹–­‰Ø@§D,K7VĞ–ˆe·bFíyX–WCNyØ&U/Øó°X8Ö†…ƒ«Ò° ğü=;©USØ2'j§>_¡¢¼DE1eæäU6$Ú9½mµEÎÊ­¼ˆ–ê·/N¼`)›pÁ¢5¾ˆ¶â–®Ä`Y[áU`ÙN–¶Ucq¦**õ¯èæ<+<?…2†?O•‰ãC³d€@óe(M•A*‘Á©š“Q<©XÆ;ÃlªAÑ¶>ÛÙ®ÑF‰¯±]q0XV;=õô”peéšaÙíKWjDÛŒi§„k“ª'ì	×©ğ®=á
+M=%\A0 â`LŠÕ1µ'\ÕR}\¾Â†}¾Ó9»+:÷W$Dö%™äˆu-FgZ±›ÀC–#vK8˜»EX:ĞY^ì–€$‹Ö$GŒåäˆ²¸¡ÑË¶Q%6C,IË¶Q%ÆA¯X—etÊej…HšcªN¦ëĞ0™ÖC$0uUR ”PPÍIŞaR±d(Àö`4W-ŠiØÇZ¾°>&§êtA[·4G0˜ziÃ–æˆ²"¢iØåò”æˆ²Ê‚6k¦¬«3hçp¡'„-Í1UŞ%/[šcêx¶(@ÜÒ“baP‰	òÁTÔíø Íaí«<G”•Şş[wı%ØÉ=v“æ:døÇ';YÆnğû«„eGL=o°ìÌ–íÎc‡Ÿïw×w±ÜSwÁÀú6ñ÷<‹4—kŠ>“\Mm÷Ë€‘Ò°Õ­øÏ¶I®»“õl“õı+¯~Á²5¥œl8À–¥lY´Â6Ùx€-K™U`Ë2Nİ&8,ÛaËÒ¶U6`›lš`e€C!Û©:4LàM]`R:ÖTsB¿IÅÂI0†=ÍU‹"l“ulY¶Â6Y»Á–e+lY¶Â6Ys€-KWØ²l…-Ëöœ2KWØ&kš)ÍÛ&VO0l§*À»Ì[h4ø«9ÀÀn°ƒÊm°SQ·ã#Ø¾Üf,aRÙÂ‰¦WğíÛÃ{ ŞÈ>[É:¤Çcji9’ƒÆ"lË^áôo°zÛÆ?ÌÇ•Æ	¬úÎı%hS_.ŞÎrá\ ïß¡šæeº”ÊÕÔ–†ĞQ²‘¹¸T6Só¾J—òi•¥S³İX–íÇVXº15[`j—éà¡c-D™ŠÕ)´aÊí€Ò&ŸÖé@)ƒ^¢9…ªXq(¶°“¹jÏ	©‰ú
+Ë >×‚ÚRŞ‘šöe:–mHM§e:–Æ’ÛRæP[ª+c¡ RÓi™¥RS]¦Ki^¦kbq„´/ÓMU¨sicÔ	µÑê®é´LŠPÿOû2İ¤XRb‚|0u;>BêËÖI\¸§çTìŒ†Ó!¾Ø™±&®é¸t‰_×3À[<û›OŸ¿Ş÷~¼¿>İø|(]Ù¢nı}pÎ˜ÚJLİu¯ëœÈ9ÌDÎa'2ËÖ07Ç’Yº ™E+’s<!™¥+’Y¶†¹,ÛÃ\–ç¹á2V«l 9ÇÉğP8 …’§ê„-Ğ0at@h5uU¸JéôSÍ	$'NÁö`4W-ŠLÎag2Ëœ->auag2Ë1˜Ì²–¯‡^†“Yº†¹,[Ã\–íLféÊä*“ù2¹‰ÅÂÎä^Å’S€Æ¨†}ëÄÔ=õlU„ U˜•pÚ:ÑM01LEİ˜ü|·g0W²ÃÅ´0oácx2Ê	DXÅyÿ:FvO—¼×<èÄéĞ¹ë•ÓşŒ5’ä“³·ÈîÜ"»s‹N§öXºr‹öC{™ü‰[´ÚcÙJ²ìÀ-ÚíU™p‹æC{ğPÇ
+í‡ö¦êtüÑ~h: #»ªcŸÖC{ª9IUñÆ-5†=ÍU‹NÜ"³s‹ÌKæ\vnå²s+—[ùth¥·2íÜÊ§C{,İ¸•ë¡=ş1q+ã¡=xQ}&ŸíAcÔó~hoêz¶*B€*L‡J>Úäƒ©¨Ûñ·o"eniêÎ(;Æcš\™‘t:İ˜Sñî»ÿşã_}õîı—_şòÇÿüü§ÿıåú»ïÿıï¯¯¿¾¸â¯Œ§&¿»×3ÂiIo3n³ò¬+—cÜÏ(•‹?øç7ŠÂ‘U°N±ù°‹p¼f*°< 8}K»¦%ÛI‡l'²dÃ!¤–³xJ=³îIÇl'²tÈvÒ1ÛI‡l'a¶“–l'²tÈvöê–™yoØ„S:d;é˜íTtnâ„o“Š…„tÈvf;iÉvRO¡!N©§ÚÜTİvĞROŞ!N©'ùìÔË–œhJ-o8ÍÌéì¤–‰\V–èì¤–ì¤%ÙIS²“ÉN:&;éì„Fƒ»jïÀ­íSP”S®†¢nÅG0}¹–4×¹Ü|„-8)Ô;M¶+qÆõAx[Òğ>ù> !s§İıœë\ƒÄõ„Æ/ ~k~t¤+w".÷ëP»°e&b¿Øí\o€Éõ8xD»+fbHÛ½3õp,øb» fb»Èfb»ò&Ì—BP»gšS¿D§q¹aê(ì…Xb¯n¾a¦Ğ(*°«
+ÑÉ *N	…*V–‰-ìÁd®Úsâa¿¸eâa;ƒßÂKjWÆ¸ˆ<lWËPœ:é<l·ÕÌ<l·ÚL™J
+î]ÒáŠjWìĞrÅMWìĞáŠ©
+ğ-·e*¡Ñà­îÀCUx¿¨Æ‰?ñP†¢nÅG<|¾ç—yñ<5^—6N"­	Â‡IÆI·é2Â¨WÀ=ZøŞ3Xem|ÂC	€$ø0BQèŞ¿&!ù|7$]$›!LÚ§[ùÂaŸ`]+À7b»®hápq3‡‹Û9\ÜÆáR½|LK÷rÀp‘ËÔ³Kûu	L‹Û9\ÜÎáâN.nçpqÀáâfÃCıPˆpxªNˆò@QSWf ”<ÕœqR±0Tma&sÕÈáâv—Öã)=Yú-x×Yq;‡‹Û9\ÜÃÅí.nçpimXâÒâvçš!g7±úÁÎá©
+ğ­ÃĞhğÖ‡Aàı;‡'µÂ€äƒ¡¨[ñÑMgÏ7Fs¹×ÂZ÷%ù+ØòjqçÙÕ”Âş±F‡¸qÚôû·ß¿ıôf®äní.Â¼åøä]şíÙ­¹Œ¶¡sK±)uäİåmWQß;n¦0Hıe®ÏÿzñWø[19yŠúàáé7½Q<0m{–»å˜³3Eøñ ‘å;Ú¤¨û£:>7Jñ!•_ÑGE=¬Ü]eOÎhÇ½YÀğe”öÆ÷¨E“øçK¸Yïı…ÿÿ‡o¯]¨Q½"óÖbô†.¾Áv|vßÃç–õÉ5×Û<ŒŸ¶slµXOìÖPSø ç¢+ˆm2ÇÿÕ´¤±ìØ¡wGİı#yÏ
+endstream
+endobj
+11 0 obj
+<</Type /Annot
+/Subtype /Link
+/F 4
+/Border [0 0 0]
+/Rect [104.25 14.6699829 157.5 25.169983]
+/A <</Type /Action
+/S /URI
+/URI (https://kome.ai/)>>>>
+endobj
+12 0 obj
+<</Filter /FlateDecode
+/Length 4692>> stream
+xœ½œ[d7nÇßûSœÇ$ÀÖèN	˜®ñyp€]çÅìz“ vbÇäãÔJª.¯vÕğôÑ…¤~Ô!uúæ|©ÿ]æ2×ïnğÏì­ØRòõå‡—Ÿ^œ7OñšŸÆ¦…|¹’ıÍ—®Ÿÿüò¯ÿtıøòÓ‹¿Yk“íÛ¸éw¢áöL½ø‡o®öåç¿¼¼ûÆ_ùŸ—¯’òõÃ‹£[Iı÷Í"ºXæ|¦Te”M`‘M>^%•›”Ëõ…oN¶øª4Úêoã’sU–}),²ÎzKW!Ã_ã›Ó-c¬«Ò`\ Ë%n%æReÉÇ"²	©Šˆl¨7GW4MZœ'{¹ÈãÏÎ7Y)%\.^…,ßnÉ8Kêb¸9[BÎØˆ¿åhËÚ¿…Bï®Ëßl,%{¾»eÊ‰Š¨»ÅBhÄİ|æÖDmîæ\ö±h»›¡dmKØƒÁ\µæ—¼HuÂöÂ6¨NØ©ŞO8Së­*ñtÙ¡`è‰ç›#N2Åúµ)hh#E¾Ç•”–"·ÊTo®2ç²£fœaˆÛh/0XŠÕ)6Ã#Wñt¹Q»Ï’ÁˆÊ ÅWavàÓSàûS]°J@­°œ¦è`¨Ü­øo/ß¿¼û—ÿúñ»_~şë—_®÷ïß}{ÿç—¹¾úêõãıåõóË»Oá²éúüı‹mD±W0W!}şáå½1>­1‘?“1!ÈãñÖqŸÚ¿Ã½ıNıÎ¿Œ‰±ığ5¼7c¢ë×?Èïë‘Úõñ=¼¶ûë¿mû_Ûµ*mŒ³Oê¿±ö«ëó¼|ıùåëoï,kŒQÄbÁ†¬*\˜e±hUq´Ñg Væ
+ZñVÙ\UÌKÀUe¹ªŒY’ºª˜±CÀ®&ğ²ÆxE/¼<W64ù¥;kÆ7×,Ìc.n=åÉTOÇªqrE«|"¬cOftÍÊŠd¥ì$+…çî’¬äd%ó¼½E’•\çm‘d…$+´“¬·#’¬Ğ‰d…v’ª$+¤IVÅ“dr£»’É`„d2h!ÌNH&j’‰º„d¨V!™€†ÊÃŒPfŸ¡ŒÙ5Xf:^;«LçšéqKüİÆ.û•ü›Üë¬
+ışÉÃ$,›,¼K¿µ/\Ëeü;Ÿú¸?.÷3ïî¿+½[Xé]õ7¯XéİÎJïyá–¸°Òûêw
+•ŞPéÃ•>l›¼*d%K°ôaÛè5a)97Xú¸ÀR.,¥!€%v
+°”-e*€Kœ6àRT4q95	´D¥-§}ìÉ®Ùii·<}/Õİxi7ue[ f®{¿*´±PQv…¿Ç  YÅ±¥ÕèÊ¶¬Â›Ul(ñÀ´Ø>ı‚8‰Ü…óÉ ÀMeøàÒ8Utÿ©\'fÛjUãò³EÑ€yØ÷FİsŒzêuÆÄ¸‹ôxKX1–:‚>õ6H#­"Ğ‘6ïIĞâÌê¶Ñsœ÷ÖwÅ7gÜ{_xP–SY¬jšºJ­ı:×Øî}Œú8"è¢‡ûqÅ°µ†­­«—,b˜…+†­=b˜Å+†Y¶aØÚ#†YŒ‹1ÌÂÃ,<`˜Å†«pbØÚÃpYÖ94$V
+?`€B˜ŠPIM[*¤M
+•ÒŸb{2¤kvV¶Ö¶é_ª†­=`˜…†Y¸aØš#†Y¼a˜…†YxÀ0‹7[Ó0ÌŸ
+Ãí‚8‰9`XuÎg†áƒK›#†A-¸NVªÆåwÀ00û>ÀpxŠakZÖ§ï‰a8¡ó®2àõ„(Dñ‡¬á)ËıçkØåRÇı“‡v?iü±N9uß—6z–`¶7Z`WœNUˆ!¡´ïûÎÖ†° 5„RC`ot¤ìb}&õSCÜÓ ,Ü¡Òª!í{[îPéÕêÈ½‚j ¶Ø-8å°Råf )vA+døÀœ*0HÔ2Y%êª¡ª€b{2 köÕ(~ßÑ²pGip”w@ip[ÀÚ`ë÷´ 4Ø-P…;Jƒ=¢4ØJƒíÖµJëp{@)v„.g(•á£#ÃTÑéİ–@âRrG”ŠYèdÀ<ìû ¥ñ9JC»4x +©;¢yënµ>Œ»—	—¡=H8p»ÏĞjİÛØ¬Wyà=a=<üÁûÀqÛ<¾¡±™öûQà;Ÿî0Ó;À|MOü³UÏ}/_Ÿœ·Çs‰J¹-ÿô ={pvèÊ…n¯ƒà|î¹kò=ÈÕyCÊ)fI-íÏ.è"ö`ÆÂ-˜¹PNÁŒÅ[0cáÌ\<ãªxf,L¶Ø€b!‘õI3oOU8Ÿ\Ô59¼,Ü„†$°©N…Ç0@!7LE(¯¦-T4"¨RbŒR»Ä#0‘=Ó5[«Àæí…Ît§µœÔj|2¼Zw²şRÓ¨ª¤§âéÅÛ3·ÀÆÂC`cñØ\ˆÍÆA×ëúq¹\*œJv8(pT>85NÀT.•©@\V j\‚Ó,t2`ö}Øèi`sñzf–xìƒ`Ô»†Àš29ìŸ+šLÇé”Å¾·vy©°¹lö¬1×t…Ëö”®`ñN£|¨°¹|¬°±8çU‰…;ò±ÆÆâFÙ!òRcƒËàìÒĞ(kl0@Xn2XšùXeÍåU6¥v€HŞ«l`J×,­aDeOX°pÛe;Êû.›…Û.›…Û.ÛaD{µ­
+wQ-†$Ó´ÑFÔ¡øSÃˆHÁHnÂÀûdPà§´×İôTÁÿi/½¡aU¡ªaÒ^}Cæaß0ÊÏa”GùíTf.=HPœöOo$(F~U•ñ>H"¡î3—ì–|ûÉ¢ËcÆË,&)Ú¥»x_’°ÇîR^œûZz¾#÷f<ÃŒVª†>íZ¬#‰`7vÂl)ÿ¡íDŸî„º@¼¼[wÂœOè`~ÛŸ1v®Ppèó…¿+-ÈeêSûĞ=ã^{LÌíßck^†‡-T–¹¯q0Ğ’¶tHÛ³pÛ–ò§m9‹·@ÈÂ-:&îY¼mËY¸å˜Xx„,ŞaÎ@hIÜÃemo(f„½Óu[Ş¨!LEÂ‚š¶„PÑ5 J	JJíÀÀDödL×l­"a C•…Û¶<Ù·å,Ü¶å,ÜR÷!S÷,Ş¶å,Ü"!Ûro‘0¤–ºçO	Ûq“tHİ«ÀıÒ!uÃ§NÇÔ=¨—ŠÙ·åJÕ¸í¾-æaßGQª³AÊ‚o¤f®S$¯’ÁTGx#¬<Êƒ¿yRåµ·tHbßçG³äĞ£9äĞY¸ñ-šcÅßX¸ñ-šcÅßX¸môYxH;°xã[N¾E³dÒá²,hHø¦:•e	”S‘Å®¦-` €€*5Jí‚%0‘=Ó5[+¾EsÈ§³pã[4nç7¾±pK;DcO|cñÆ7n|cáo,Şøí6^òéí¸É!ŸŞ;Zwú}P.å¨vç›š*. ·§@¸¬Ü‰o`:0û>âÛó“vqnFıØ"“fw½m^·õ#İY`[àšY¶ßPœiTØ‚ÇqÚÏö6?óiá˜O{¾‚…k¾"z:bÌÓcóùˆ1Ÿ÷|wŒù|Ú¦±xÇc¾,“Ë°J¤!Àv
+«OëT¦k§ë_T49!ª¢ Ú>ÓBödJ×,­)æã-[¼¢˜<ëtŸç“¢ŸáÛ(ÆgøÖ]Zä|Šñ)¾5_ÁÂbŞŸò,Ş)æ}7±_(V/€—øÅ°#ô>¿ïÒ`øèÓşH1Q®”°ç+ºª×|E7ËB11`ö}D±çİb°‡² zÊû•eA|Çáx‹Rw½‹FŠB³”øé¼û;&/îPŒ§;N”|v’ÃEGªàÍ“Ï“1”ĞºıÍ’Ö?ËR$_ş.YŠ§Ùˆ”	Î«×lµ”GÕZ¤ìŠ‘…xœòÑÜR$×êIÜXFÙ¨Í¹V£Ò±¥ü²†6–é¸F¾–Ç¼k,å{0ª±,Õõ+b‘:¦±”C†´*ãW wä—z \`öVÆ³Ş_ĞáLF&¼–Úq®†NF¨½ILAKø[ØƒÍ\³¨ŠbäjÉ]ª•ZjŠº¿Z•*ÂXÆok\jìíı45KWKb¤ãKù._,ãJ0z±ÌÍ
+É´…«Å;]äZİ?UèjÄÚ­êı¨ŞIĞK†8‡.D×ªÀ%0T†‹¥½ª§CV7‚ŠXb¬<Lù(`=?H~æW?À6:ŸOCãË"ó…Z~ÿ™ëq‚z†—wßı÷|ÿşİ‡/¿üõÿùùÏÿûËõßÿû?^_}uñhßŸ_…¾½×ôô8Œú¡’xfÙ"|ğºôïÛîœÒRM¤ÔJPŠ_i/&RjU­…_ÉnGŸY¶ğ+¹¿R­½EÅ¯äv~%wâWª¥¿¬ø•ÚN?5ºø¬”y/PzÕ7Ç«tÖ3ÌV~×Ä¤ÃÔPô
+¼I{±P,åš5µb+5)jÅÒôó\Zs\1ïÔŠ­ ¦féD­H;µ"íÔŠt¢V¤Z±ùSS+ªá¼|ú ¯š£ï›£?…ù?OM€ßOÁ
+ÍÂZš6 ƒ­ò°ä#h=?|Gsè2ì$G+B1`d?¸î «åM>ûjŒõwÇxğn”İ*ü
+äb³ŞIÿÚWQ*Áâã]|}½c'\YêDTji!)Â•VƒPö+µ\AáJ«l(Â•V Q¾SZ­da\©e¯WZıEùm	'Æ•°ïÑJ€=ZYŠCrVØlhıÁª#ƒÕ=g €¹1¦V&W¦î€? e Õ´‡=ØÍ5«jŞ»ó®´Êƒî¯)Hñ®˜wÅì¼ËåÄ»\vŞåVuQ¼Ëµ@cŞå²ñ.wkæ¥Ô.ˆ;Œ[Áo ğ°9ğÄ9jğY˜z·Ùy75†ëE4‹+kØ€¶ÊÃ’x÷öiĞÊ»²¾>7Ÿú	^ıZ^¡“cï¾Iü×VÉ\6[NWÆÒ›ª ¹ËxRMT½3–:{WXFÃ™æ¶øÜ¥Õãc©ú´±É²/Ä²ªù*«);¶G><–›4ğf6æfKj²d‹ªÑûÍDuùEjŞáš´>Šq°cê"¦A¬±wÅT-‘
+^MÍ;U#±ù±î-V'(†«¯áèC[AAÏ3TÿK	5j\.5ÚÚuZÇ¡­r‹Öğ£…fÒ//êjlş§Ziù/İ_­FÖÒ’—šAK¿é¹¶L]S”h¥%õ.¥¼–ıSZöc!+sÔ”â¥¬æ»9}³ÿ´5ËÁúè6Òú×úá3z¬Ì}{è×ÀĞ®Ñ,,«a‚²›j¬MFÅwãO$ˆñö)Nb]¸™‡,’ÄFİ}Ğ‡İÇ¨ñöW„G·±{âİ‰-çüŸäïVâÔóå8ç~$‰zÖuØN9¯Äé¢qÚ¹iMœvÄz%N;­‰Óm+×‰3¥ƒ>ÍFœh€8Ñ.Ä™WÁÅg#² 7X4cX°¶æèaÂ<a½NÀºš€Óş`´ĞLª‰SO!óh±Ú‰ÓN6¯Äé‡ qÚiiMœv°:,Äig°púYmTr;Õ½§ WÀ	±Y³SW¹8Ã¸¼¦u±ğ¦Å)ŞŒƒ»ÂÔĞ±Ó›©,\*é€›©ÿ²Ûi,Ì§¸yûœfÅÍ<4>y¯‰ùy0Äşø	ú\æ?¿ùıËO/æJî/Ÿé¯àoßø£uüí­?UÇ(
+0·Û>áİ5ÏÚP‡’n¦pŞÊ_æúü§‹/¸zÁßŠ¡äs”ïHÿï¦â£;Êƒ¦½¿ån‰œ)rÁ)[GAšº?êãã¸£Ï‡ºÏãQS;wCWä3Ÿ?roV0—ÙŞ\¼<Ÿ|q¿ÂnÖ{áÿÿğÍµÅ3ªWğŸçPŞø•Ec ¹*IĞîÚ§?]±½/­J>[/–é{
+ıoõÔ?ş D{!®¾÷µœˆho_ôšàu÷8P&
+endstream
+endobj
+14 0 obj
+<</Type /Annot
+/Subtype /Link
+/F 4
+/Border [0 0 0]
+/Rect [104.25 14.6699829 157.5 25.169983]
+/A <</Type /Action
+/S /URI
+/URI (https://kome.ai/)>>>>
+endobj
+15 0 obj
+<</Filter /FlateDecode
+/Length 4428>> stream
+xœ½œ[\·ÇßçSœÇ¶@Æu»ë8èC
+41ĞçÀÓuÚ¤	Ğ_P:)‘³ã\š ›óÌÑ…ó×g¯èkûï€O®âŸ%¸kuµ–ãİ‡Ëwôáês<æopéšC9°õµ„ãû¯/ùÃñíå»‹¿:Œ­ÉşjÜôIÌç«w.ĞŞğÅgGñı7—Ÿùã›ÿ\°®¢?>\0_ÛpºáêkÎÙĞ—œº-ğdËÙ%É®.är¼£»“«¾†n.zg LˆİV|-dsè¼Ëd‹ôéît-Àa· y$j%–ÚmÔ:Ù\(R·åì"İidNkEŸŒ4ƒ‚ş´‘Ÿ±9Ñáš ]^®†+ºJ‘­øk‰®îıùk(!ŒşúÈüÕÅZ‹—3ÀkÉ%åºÎ¯±fŸƒô
+^}éíßá±øXW/ãrr®Èx8#nØ£úî²\Å6ëciiÖ¸öçhÖ¹÷7ÆåhÎí^½£9çu@¯O/±G€îÂcñPÛqú¸t¢Gˆ£4Şc	œÑ„5]Ëá¼U®›Ö‡ë«WXM8–•8F-×,ÏO®îá	™Ãc2_Ø³2³F²«2"ù·ËûË‹?ıëÛ/øşÇw?/_¾øüé¯8^½z|ıty|{yñ&.oß_\GŒ;Ğíåxûáò ß „@¬ı5x€N›ëÿ	 æÓûëf/ ÑŸ¯3@ÄşÚ=¶‡³}úù´·ÓÚ§­ö{b}çóí‰ÇÕú}êïG WïôñÔÛoïİO›Ïã6ÏÜÛ‹øêxûË§oŸóbÄÓ‹Í[goúFO­å' çF‹Ÿ~şÔ!›ëÙ\5dsÕ-`A¶€†lÙâ,È§![µî–d)Æ6ÈG#Nd‹-¸Av^i=[ı	TÌ‘	¤Ìøˆ¹
+LM¯L˜Mß	è	/<Îx8#nØ£ºB6Ù\4dsÖÍYC6gÙœ,Èæ¤!›“†lNdsR¥Æş{…l»ÀËaÜ*ÖMïc‡lÍ
+Ù9j±fÅüÄêY0=&òExVfVÑ±*#’7 ëîC¶„ÙÚAÙĞğ†Jài¶°Â­Aï„Áµ½ï©ce 2@lïu áA×ÚËšî|_}àWˆBpnAvD5Û†(‡QÍº!ªÙ6D!8¯Õ¬ĞD5Û†¨fSˆjÖQİv"
+¡ß1W»¸:“B´2µô7MŒl&¤˜ÁLİe®3É…WNßMd,^pñpFÜ°GU"
+ÁÁ5«ÇÒ
+Ğ¬İÒTšuˆj¶PÂ!u'M¨fİÕl	“PÍ6è!‚e#™z0¡,„:/ğj·Še#úlF,Ä9j±dÅüÄâIĞæ–té]	5B 	%BUF o
+ïŠö'¡ü/ Æ.Û²Dq{ß›“†QÈÀ,¤ÜK3²y€±KUƒPÁo„
+mÇ“B…¶3ÂÅå¡í¡òF¨Ğv[~!TP;U„`ìT›U*DM¨`ìT›uÛ©vÛ$TH¡‚Ú©VVBõşp#TÙ¨9‘¹ÁØ¨
+§LµQNŞÔFU„{PW@µQm¶MC!µQm¶MC5›"T06ªÍª@*€E¨°oTÉt6BXöêÒ‡\`j£*F-—¬±QI 6ª‹geb©ªˆU‘¼A(ŸP¡HBºhÒ&²jéAæÜz5’¢œôjI\w¯ÏMë½åÇi¦7"å¨5SZ3åd)·P»…H$‡}MKxs{í6"å¬‰”³&RÎ‘rÖš)·™³=µÅêWEÌV‘D"±æÈDÎˆTsI=½2SúN BxYÀdÆÃqÃÕI9h$å ‘”Û¬Ë‚¤Üç¼ )÷9¯ól¯ó†¤ŒI5’2êm]³BN¸0‰‹ı÷Ê¤vA¬‡q¯\9Ü‹\c¨¡4Ç-W-ÏP®ïá™Ãg2cØ·2·‚†ÒŒV±¼¥pJ”DÊ	&)e~©¤CÏmOñn<ÅÚÀ7Çâ)Øş^¹	÷¸¶{Äøâ<ÃQ:0–I#œcøÿş4ùè0 ø€ÀÇSR>u›ZôYF@ñ¸”iVz½Ów=ŠAœ4ÛN4õ(vQµĞ»ôZè]¤môGC¢¡GQèCÎvœJ’€]qvúã®Gù*ó=Š¦å‘1ëĞ¤r®ÌOöÊ ,ûi,½ÌÜFCrÜ°Gu¡?‚AŠ]6-ôGC¢!H±¶şØ¥]8ÏÁÙ6ÓƒqrÒ¬;ıñT¤¸+R\)ß+WôçñÈµ8Æ-W-ôGC’¢!I¥oeniIŠR’âs’4İ¥?NIŠâŒ"œ×Å)€ ı˜SÆO8?=€ÏMœç ¡ß?Jš'ñÉRÏ~Ó-YŠ»,EC–¢!KÑ”¥hÈR4d)š²YŠ†,ES–¢!KQÊRÜe)²YŠ¦,EC–¢!KÑ”¥¨d)²MYŠ†,E)Kq—¥hÈR4d)²YŠ†,ES–¢!KÑ¥hÊR4d)²wYŠ«,EC–¢)KÑ¥hÈR4e)²YŠ¦,EC–¢”¥øœ,Í÷Á4e)şœ½oyş¼A‚HÃÅC^áâ!+¸m‡‹‡bÀ…¬;\È¶ÃÅÓãU²îp!Û²iÕCÖ.Í6àâ¬pá«¼œ¹†‹ìS„GÆ©Ä3à¤“såôd¯Œ$fßq²K/38Îˆö¨.pñ\È¶ÃÅCTçdÅ×c}¤9‡u^‡.dİáB¶.dC,+[È9Öc	ZèÑ„°²¥_ËaÜ+ÎìD®° ĞÂ£–k–ç'W÷ğ„Ì‚á1™/ìY™YI¡…cUF$o ¥ÜE‹ws´Õ…,÷Ç6TÖhÓ=ox÷;ê-¤v¹{Äù“t÷uC“WUÍ¦ĞÀBS ¦ MÁYh
+­FÁ-h
+TËPÖœ…¦ ª,ºm¢)à†¦yUdCPUK"ÁæÈD"Îˆ”sÉ=½20}'P!¼, âU•…ˆö¨®hòtrßÔh¥ğ/İù¬ÉäU‘E³íû1ï“E&Oå
+©.dòI“ÉEÍºËß"Ü¯hòiAÓ¼W,Ñ‹Xb^•Yˆq‹E+f(–·WeÂg"a„oejAÈF¬Êˆä4Õûh
+óaÒxXæÅ¶l<àŠŒ£[(’¥hàF^|ùï¯¾}ùòÅÃ»~üêŸo¿şïÇïŞÿı÷Ç«Wê%øòØyó9ı«)­Ïæz5™xŞöL˜A¯¼`ø¬0È–ËŠÜ
+âÆ.Rº.Ô…]5»²·Ø•uùÙ”¬ÊŞØ³‘U±+{Á®¼•_ğU‘.Y—_ÈşD
+f]~Á3I-æ*ÒzeBbúNÀDxYPçŒ†3b†=¢+¹2hreĞ¢*Uµc#›BWÒÕ>]©ht¥Vïàt¥bˆªT´¨Jg,ÓV}Ñ/ğb˜÷ŠeÃˆõ5G#ÖáµX±b~bm']}ÁÙ"<+³JW_p¬Êˆä­ú°»U¸è³,¿gVÙÄ¨¼¥ÃÈYSêY-HÏö‡mnÇYr²ºw²(3«¬²Ù¯mÀÖß£ıÔÊbàxj6*‹éúİsçî4„¿ÉAÃİ„P‹ĞÏ{ÄÛÉDé§>ñ)E»N§çı›J±îŸq×¶ÑĞ¶ÑĞ¶ÑÔ¶ÑĞ¶ÑĞ¶ÑÔ¶±+Ãåó!UAÜlúó!Ú6Jmwmmm+ûcÎñÈ˜‡<&g4µmTÚ6Ú6šÚ6Ú6Jmwm½ª n¶ı"â66¡¶n»ctË¶;šâ6â6v1¹|BÄ.;×OˆØôéú	OmwmWmË÷Š…Ãˆ6G#V¢!m£)mÙ"¦ÇD¾˜Ò–cX•É[Ÿ÷ôâÏ·|Ê;?Ä÷>5öÔ¸¾W–¿È“aIôyBìEAŸ[£ıãIÿ7üHñùG‰qW¼ÑP¼1ë’ãØÕØÎ´¦Û6¦š7šš7vÅ¸ì×cS–ë~=vº!­‹U¿ MJŞ¸KŞhH^nE »y9Ç%òw_dº©x£R¼ì9AácÁ¢¬£Ô¼q×¼ÑĞ¼±ë­¥».Ìü´&à6 u¡·Í”¼1é‚ã˜tÁq´$o4$o<%oÜ%o\%o4$o´$/F,Ã¤£)yÙ"¦ÇD²ÏÊ´‚}¯¥âÏ*Şûå|qU¼ñ},—WŒg‚çÑ>Š*–
+@·JÎ´÷5ü}5·7ùï—MşƒÜäkd%Øj>èš²íÈJ`Õ|uGÙvd%°j>Èº#‹l;²È¦1’u—aÍ6˜•`«ùà«œ(Ü
+3KöÇ¹Ç#ãåp6Ë¹rŞ³WØwLéeÆÇÃqÃÕZ	PA‹l´8¥ÂÈ¶ïÓÉ¶ïÓ€-²îĞ"Û-²éGŒdİ1&€3š[ÉG¿ –ƒ.ù½È%¦«yÜrÑ‚-ö…L]ò!}+Swlq¬Êˆä-lİ/øKP~*¶êG`kûVØo-¿U„$¯+BÈ¦°å­Š²*ly]’¼UBÖ}÷H¶}÷H6½{$«Â–!Éo!|UdŠ×!²?‘}^W„ğD>{«"„½2ùàuEˆô² ×!7ìQ]±åuEÙöİcòº"„lŠ[Şkny´¸åQíÉ¦¸å­Š²*ny<Ã¹U„ôb=èŠÙ‹\cº"„Ç-W-ZÜš¾yà5·¼UÂQÈF´Êˆå-pÅûà
+³R¹
+$J;Æ“Áå«©¿ ¢x<Œâ$œ ;`œßTJ[)IJº”„lŠJÉ*%!«¢RÒ¥$)Y¥$dUTJº”„l†˜Jº”¤Ù&•òVJÂWE$]J"û¹•t)	Ï@dk²JIØ+3û“.%‘^<Iº”„ã†=ª+•RÒb*%%¦RT;@²í;@²í;À”¬J²*1•t%	ÙÔŒû0¥^IB¿W&¥¥’„ï•ëÆ¨$áÑÈ…¨+IäüäâÖ•$ì1™.ÑØÎd#ReÄñ‘îWÏ¦ŒûWNåw2Ë«y,{ç	’ùtKT´¿Y’ák!ÕNâ¹Àp8hõ ®G~ÆÍÓq’Í­ïÿå›ı°,Õí  U} @¶–¬ ²î°$ÛËÖ Y÷'Ùö'Ù4,ÉºÃ²Ù,3l |•”[aXÊş8çydÌSDÎ•yÃ^Tbß1½¤—æª> à¸aê
+Ëª‹[È¶Ã²êçÿdS
+®êâ–T­çÿdU
+®êâ²
+®êâ–Tû ı^iY— ¾WĞ²ZÅ-<ËªO ä.«.naŸ	\Vë`!±*#’·py¿¦7Cøˆ¯šıÊ˜™µ|ÑĞ€£ş/±îòÄ:ß„gøp’ÏSç³?ãÏ¡Ü?.÷Ns.¿ñ×Í(Vã/Ğ×Ì0İ=!.8ŒÒÓÌvâ;nÎçÉ0}_m6ôçËŸ/ß]àHx‡/ùúS|æ¯ Ò«çşî9x¬D¸¦Ø×³§ÇÃ»s˜.´¡¤+T
+«?àxû×ƒ.ô…ç¯rò%ò…›w¤ŸÜT¼uG½qŞ´xÍ1g„Êü¸ŠÃ¸©§[}¼wÔêCª1[Mİì‡¯²/<qû€CqWŒ‡Tü+àê¼÷‡üÿŸÚÈ+£­ŠL%-r5¤p8³ÂâA@bîŠ¯¿ŞşKn¨^œ/´¬EOáÜZ¶ÏÏÔöŸö}äo:Ğ­½$YúîBv”Ë
+endstream
+endobj
+17 0 obj
+<</Type /Annot
+/Subtype /Link
+/F 4
+/Border [0 0 0]
+/Rect [104.25 14.6699829 157.5 25.169983]
+/A <</Type /Action
+/S /URI
+/URI (https://kome.ai/)>>>>
+endobj
+18 0 obj
+<</Filter /FlateDecode
+/Length 4219>> stream
+xœÍœÁ$·†ïıuL¸WU’
+X,0Óë1rp Ûäll'AìÄÎÈã”Jâ/Š½½9Äˆq÷°¦JI}ıKbï5ĞQÿÛÜæ¶Ï®ğk‰şzøã(Ûû.?]Å+å}¯Î§keG¡+%n?{ùãï¶/?]èêÃ^ÙŞõ›>+Ù—kŞù‘®^ÿú‹­½ùùûË«/hûş_—P¶PrÙ~¸„|­½i†+9olTrj¶\±-gŸhgÛqõ1çí=ßüAGlÖİï‘ÿ2ºBh¶Büì|õÁ“Ï[(ÅÕ÷|wº–èœÍ] -$~Ê^fKşğló±¸˜š-g¿óİ;÷lw§•{¼…GPø9¥øİÂ¯ï/!^“>÷ñüKÁ{éZvèVèKŒ½•Öºúı8
+a¿Ãµä’ò10\÷#Sè‹p¥RŸ7<®!ÚáÛ£İërò¾`¼­Ğbùş2]ÍuÀÛô”Ì£s{‰G]Z{½_©y›zŸê˜§qæßçæ¥á‘¼ó]aCÏåŸ‡K³q/ZpF4òÎıŒ§ÂŞ^kØGˆëÉ‚q/ä´™5ú8ú¹
+#Ä¬î¾Àìï>Ãy"¾ÅÕ£h•Ë¿\¾»¼úÃ?~üæÃÏ¿¼ÿ°½~ıêËÛïßnn{óæùííòüîòê%n>mï¾»øF¿EÇÙGÛ».¯‡sñæÜşì\,ÎÅìœ#çvşáßwçâKû›˜ÚµøìÜÀ‹Ñ¹ŸÓÿ†ßÛ3Çïşü	íÙüŸ‰íNWÚïµ—öüú7»¼ÏÎÑîœ÷o¶w»|şîòù—·Š®Ã»]‡wºØ¦Ñuxo ‹­»¢‹m¥^•t8|¸úàÊŒ.¶Æ<I0¶%Ïï$Ù–³3ºØz"DWµÕqÕ.ÓÌ/¹*ÓF"Ãöd*JÏdÊÊdrãXâ•ñ@½,ø‘xx#n¡Eu‚Øá5!ÄØü±Oí¹r-{ğ1¶iˆ±MCìpÙ€[5ÄØ¦!Æ¶blÕ;\náty†X» ù0î…ÌV ÇF G¿!ka„ßÃ0†Ï`ÆTßjˆI²­Òcybş!Ä¿wˆ}H	@ÒÁ“RõoxÆË	©'Zxp*rooÃÇö·{hnÏ¨÷ær'ì¸ÉxÂ±·ïÓüŒh†ƒ:hß(LªzğèşqÿÛŸ:Æİ¹pk0¦ÜbÂãÑ9ºõ±Üë,9Ê½³/Î…rŞxğ{EvrJ”²§Êd¯¶\ KÉ5Ù´O\¯VÅõjS\'W›âzµ*®W›âzµ-\¯Ö#P®7ÛÉurJ—ÂÕAxÊàúÔŞ ôlPF0x7u¼rò|78;yyyDÃ1-¢Hur«4­6%MÉ­Ò´Úb‰~›ú^åXFiIÓjUT¯6Eõj[¨^­ŠêlkÁTÒô¼ Ù°JÓ©È°UšB¿!g-i
+¾ÀYĞ}†óÅ¦…lD«ôXŞ¡:=¢:¹!M)œ¤."I+Åo O¢Wêo®Ÿò	À$@öER’W’’ZRV›’”ä-IY­j5\mj5L¾Ê,µ®Vµ®6µ®¶e5\­=$%y%)áª¤»<EĞƒíÉ’ÉT“È¤Ä±Êô¯ôI.¾xKRB<¼·Ğ¢:ÁÇW‘âÂÇ7135×TOBöø¦&öø¦¢&öø¦·âÌ_•Y:=¾)8ìñMëÍèñU²Ô…˜5AY_'ôøIP÷Îèñ– ìİ™Ğ#İ†œ…BvWÀ,.ƒù®…™ÕcP•È;ä‰Éã‡$w.PAÏEXÌî'9âçB“jğ>·…2.€ãù<\ØgßN=Ùïk(E¢VÅ°’(’E¢Ha?‘(Ï¹4E5F~ï‰b\IãJ¢ÄÖ…Dl$Š»"Ñ¸
+Ù?$‚ö`BÁÄ#€)
+c…É<¼2¦üğ ¼ñğFÜB‹êL¢èÄ6-ƒ|t‹bÛ‚¢èVÑaÈ ¶jÄ6-ƒØ¶¢ˆEt´hÒ¡PT/H:Œ{!q¤È°ÑÈÄÑkÈYf·[I4<†óÅY$1ÈF¬JäíQÇjèÖ–¦Ÿ‚‰¾ŒöÌ’¦§Sè”acï/€púØÒúåã"¬Úã¹—Ø—¾ÉÄY
+g9®8Ë±fÉ¼­p$ka-¬XkaÅJxV¬…5ÎrZq–“%¬rZqÆ¶³†˜ã*Ì öšpÖÚÓ8=ƒÉ;F ÓÆ
+@^Ø¾¼€—D#Şˆ[hQq–iV™a•Ã*¬rXi–ÃJ³ì-a•ı*¬²_i–½±¨c«^ÔùìÏhz…³zÒÁ¯Ê
+ZÁó+ÏF¿1i½¥¬†/p„•gà[œZ´(««Ò#ygé1ÎòØ‰JÆQ€¡°ºZªŠéÜ1«ª©#%«ã
+D-œ;j7î¬å;kvúUvÖîš‘ó½#{Û5£]ï59[_}Ûš«ÛuwÙHKL2$&5I31™šøQL¦&“&&SS“©É.Åd2$&“šäSL&CbJLÒ“‰I†Ä$Sb’!1É˜8VÁšx¥ÃO|'D/M%Şˆ[hQ˜LU¶ÌL¦&oææÜÂd2&
+“šSL¦ªÕf&“¡0©‰?Ådª2qf2“´Ä¤YbÊ½8Ğ
+¤˜¡1¥ß´0BLïUc’¡1ÉÔ˜#ÙˆUé‘¼ÃäòÉ$³€¼{:_O©ÙíuÕÊ+Ñ·'>@bVşìæû'NãéJ‘{X‰V†ßÎÓìvçş]?…¹‰\µå#iùH†|¤&W¦Õ05a£VÃÔ$Ğ´¦&”¦Õ05I¥VÃdÈG2ä#™ò‘ùH(IËG2ä£<PíÁŒ3ä#òÇ
+³}xe0aøØ^ÈŒxx#n¡EuFU•$ój˜šr	s{aYSÓBqbUÓLÇ<No¬†©ê°y5L†~$S?’¡éÔ¤õ#Íú‘ıH¦~$C?J¿1k½±_à<ú¨wò-Î-ZÖÃ­ÒcyVÇcX‰€<Åİ€G†M}'â¯¡°òEú:¸¯G‡ÀìÏÓ‡úÀÁ¨uÑ‡u½Œâu@bÍË
+2N¬	dÑ¥dlÓ ‹. c«Û4È"oË. c«>Ûd›>Ûd[îiÜó–ªd¥Ù:Ç¢;fÉU™9òá4'“Qú%“Vú/ÓG* Ÿt\ˆç+ècDÃQ-¦Æ¢ÛÅÅ6¥¸¢‹<fBŠ±-:¶©ó‘‡ça’¡¸Øª)Æ6M1¶-{zlÔ{z‘‡½·×	bí$-{zĞ¦-“^cÂ’¡·Ä8ºÇp²ˆgqZíZoI¤Jã½j•‡5wıX«õ=1škë*kvá–¥!u
+¦ÎºxrÅ¸Xÿî6×ÏNª2[\ERÕ‘–àj[˜DF	pµ.L¢ceRt“âZoÁ¶…IÑª·`ë¥õ1ªz¹
+3a< ­zéLÂ¸Ö[àXab¯Œé?|˜ /Oh)†¸…Õ™J´V\°M‹«HkÅÛôBmz!Éª¸`ë‚%Z+.Ø¶Š+¶jq©U\ğëÌ%š*.ä^È²*.¤?‹´V\à1¿×ŠñÎ«âB¢h•Ë{dzXHG1Òÿíö\_Ve1»¥Ş‹ms½WÌŞ¨÷b«®÷bÛÂŸ,şäµè‚mzqÇ¶uqÇV½¸«¶ÁŸ¬Š.ä*d|^‹.°=˜Ey-ºÀ¼„±Â^ó</u¼“—g4¼³Ğ":Ó'­%lÓš(­%l[4Q*«&JVÉ[õ.ÛtÉÛBÈZ¥µæ"¦VsÁ¯3|ÒTs!÷BÚ@+`£?ˆi­¹ÀBr_À$>ƒé’¬š‹„lÄªôHŞcOxÌü©ETSU+AVkúÛƒ;Oı¾ §§È§'XM>ËJ¯¯ävcu98w›OW#œØU_<ùxƒ­²O9Šğôè,b¿N•ïÃ³ş|;#IgphçüÊgáé<s8½ŞÏ%j™ğ­}ú°6/ŸzF‘´6M†6M†6M¦6M†6M†6M¦6M†6M†6M¦6M†6M¨M“Ö¦ÉĞ¦ÉĞ¦ÉÔ¦ÉĞ¦ÉĞ¦ÉÔ¦iÑ¦ÉĞ¦ÉÔ¦ÉĞ¦	µiÒÚ4Ú4Ú4Ú4U5<¤¦Ç¦‡Ô”›úxHUãÍ©iÁéã!5Õ8:¤*/çO‡tJÓ¤¥iš¥©Ü‰#@†Ş@&^CÎÂø0»Óòá Ãù’Œ‡d(Ó„Ê4}T™>.ÉK¢L?á` ¯mçO‘ÊŒWßüóO?¾~ıêéı‡_şô÷wßşûÃö›ïşúÛíÍ›{ğÚQynpù’ËáñmØ"g"o• †óQ
+ákyo”ÎØËğ¤EpÊkíqÊkíqÊVíqªRN¡ÎÁÉ”Á)/_g«¶uM–*ÒååÛlÍ6H§Up2T°<H'ÍÁtÍË—Ù ÿ  S§E‹ç <Ùª<–hx#j¡Åt!ƒÓ*ƒS“jÓÖ`2dp2dp2epJËwÙªM¯ÁS2*“¡‚Ó©‚“VÁiVÁÉPÁĞ¤WZ¥×°¦N†N†FÏÂ´ZEpBœ>*‚—û%Á$òG‹Ù*¡v¸‹õE,§“ı+¼wE'÷?;Uê‘İZêÁ6Í–ì¬jb¶j¶°M³%;«š˜­š-lÓlaÛ*£Øª—ØÕÖá’*õ«’Ñò¶'“Dz&“IF ÓÇ*T¼Ò§±øN¦;zY¸ ñğFÜB‹êD—ìÖR¶)ºd·–z°Mïğ±Mïğ¥Ã*õ`ë¢¢cUQ‡QLÌÆ….G«ôà×™.ÇTéÑî7øÎFÔŸtğr¬•8@ÌîµÒC\†óÅªô1ÈF¨Jä=¼<.¿Ë.ÃÉC=1ÀÓSX¿N_J¸WÕÛ×´x®×#ìÂiç8½èJ-ÃZØØ3ì{ƒ}%HO¾H•dZË?Ø¶à‹¬ò¶.ø¢µü#“UşÁÖ_”V|Q²ğEiÑFÕ6ğEªüC®¾h­Æö _£g€¯1ÀYåâ•Á	ZË?ĞË ZË?$n¡EuÆ­ålÓ«ÀLkùÛ´:b›VG™¬òa¶j~±Mó‹më&![5À2ù3œªü£]€|ğ‹<ÂV0Çü0é7f­U>,¾Ày}túVŒÖò‰Vé±¼G°ü˜`tÀ.a%Ã3œ…kCM
+½0ë_éB¨×‡Îy’]?¬ïÚ|uùêòÓÅm)\÷J¾î[$ş7”îÿsKüîcÿÂ¬Ú]ÓŞ\‡ƒ'.í>‡îcíJººƒJ›ÛŞıyã¡^ ëár¢²Ë…»w¤ÿúQû½;;ÜK½®yÏ9¸C.P¿Š9Ê£n÷ÚxÛï8Ş~ş„qÜ{ÔİÆC÷U¦œœœN ·…Xü•§ïî¿>Ì€«'¢ÿÿõÛj”Ì¨Y‘¹¬ ³!ÅÍ{çú‡ù¦GøæáÛ²¹=íå.­xªÿ4´T¿”ÏŸs['í‡¿DT'—ë…M}ç}÷©¥=;
+endstream
+endobj
+20 0 obj
+<</Type /Annot
+/Subtype /Link
+/F 4
+/Border [0 0 0]
+/Rect [104.25 14.6699829 157.5 25.169983]
+/A <</Type /Action
+/S /URI
+/URI (https://kome.ai/)>>>>
+endobj
+21 0 obj
+<</Filter /FlateDecode
+/Length 1356>> stream
+xœµ˜İj7€ï÷)t]ˆ<ÒHÎqz‘BRCÀmR
+NIš¾iW;ÚsN’^Äp|äÑj4¿³ÄµıE÷gŒk-áñiù´KdMa|æ¨RÕÂ‘k‘ğùå·ŸÂÇåÓÂ)5•}µz†¨ĞEO´'Ş½}ñùÃróšÃ‡–›_şşøë—Ïÿ>~	ÏŸß¼9ı| ¼xñòî´¼|XnîS`
+ïìVc(KÊááiy@ğc?À t@€qıN $ tÿ"<üµ¼z¸nhYµC\ìĞª$o‡_½9-dÏJ
+OilIé‚ÈÕÂ¯±Í]¦Å$ª˜9™$GMáÑÎf¬\¥KJµ'(uY±]Òˆ„Œj2[C±Ó9@êR¬LKJ¥vYÆ¢&C) ¹ËTÑ›Y`VbÔÌ/Ä«Ìœ¢fq»NbBv%V)ÅkáXÖÃu¥ˆl×u»8bªµ°·ŸbÑ’µÎRLUYÅÇ„"—®o‹E¢Â©Î1¦šË¼1êù|\¦]sK˜t4—çËšÇ¹_¶es{n7½9,³“m-=D{8ìT®a
+[Ó#¾¥ËˆÖäì‰0kSSÂhÍ$õÜïy¶W
+ÍSšk¦»Ú+n¯®f„©
+7³}½îúÊŞBá;`™ï•=´¾§Öè…T•-‘.ï/±
+=«$` ¸&Ø`% rß?–¶. " ©öuÊ}/@ZÿNº>Ÿú3mmg¸šÓªk}¶é;õçÚó' ¦±µw›œí^êzìşÍFÄ3^©x¥›ÔÇVÕª§,h±nÒ±´X5àD,-Öyª ­¶Æ±´Ú)œˆ¥ÕÈP§êÓjvĞYZÍâ<!ËdYÈ»®S†‡,wŸk¾a™kÒákgç«kü•‡;‡eÇ›‘¼7êY©¥ùœZšÏ¨¥Éœæ‰ZšÎ©¥éœZ*¶¦µT¬ıu¢–Ê9µT.PKåœZ*=™*jµWÛY_7v‰–µÌ­u¢Ö0Û×ìî ¯îtN­2ß/{h}gå3jT•-‘W¨Eß¦V¡Z'€´R£
+Öo£ÑíºF É;…Åîwò´ıÚÉbçì”kÂş=ô%wö;JÕŒŠ²*q§à‘’ã¹ûY‡İwF8¨áL`ECpM¦ZıL&€`½Gáš4¡dG¸&;Ìdˆç3Y“f²&;ÌdMvœÉšğ0“uÙ
+8¨Ñ,nw4•Ó2 ·]7Î6úÙ90:ru0Âe%‰İ Îä&—¼6êIõ€€r\“Í€ =eM&E0xãAÍeÜ„|>–5éa,k²àšì¸&< Îd=™'À­{5Œ³®löK\}k\«]Å:ÿ\mH¸sİâ"ëûªøæ2U¶<^á‹o¸½™]›„ÒíÊcÄË•]ÅMc-i´—}ÂÛtLSŸ›âLWJî~§¸&ËûÄÆ· ÌUo—·Ë§B¦˜)GM_yA·Õ×ŞÈ[à æÔ£ïÈ×ğ¡4Sr„jFr€ğğ{°j+hæ’ö«'òÿV•®¨W6 ¿´SÔ¤JP÷Ş6rARÙU®İq·¨•%×ïğãšª«—Ó+åB°;Îp, $£8Ézù;* "3ÿûİëp.Ü+£U…„©²D/9~$ØÆ„¥}l¯5ÛSÎnA.VÖî¦Ö”º~¸7
+ŞYµô¼Z›¶W˜µ9O>vÿüèÎŸ
+endstream
+endobj
+2 0 obj
+<</Type /Page
+/Resources <</ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/ExtGState <</G3 3 0 R
+/G6 6 0 R>>
+/Font <</F4 4 0 R
+/F5 5 0 R
+/F7 7 0 R>>>>
+/MediaBox [0 0 595.91998 841.91998]
+/Annots [8 0 R]
+/Contents 9 0 R
+/StructParents 0
+/Tabs /S
+/Parent 22 0 R>>
+endobj
+10 0 obj
+<</Type /Page
+/Resources <</ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/ExtGState <</G3 3 0 R
+/G6 6 0 R>>
+/Font <</F4 4 0 R
+/F5 5 0 R
+/F7 7 0 R>>>>
+/MediaBox [0 0 595.91998 841.91998]
+/Annots [11 0 R]
+/Contents 12 0 R
+/StructParents 1
+/Tabs /S
+/Parent 22 0 R>>
+endobj
+13 0 obj
+<</Type /Page
+/Resources <</ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/ExtGState <</G3 3 0 R>>
+/Font <</F4 4 0 R
+/F5 5 0 R
+/F7 7 0 R>>>>
+/MediaBox [0 0 595.91998 841.91998]
+/Annots [14 0 R]
+/Contents 15 0 R
+/StructParents 2
+/Tabs /S
+/Parent 22 0 R>>
+endobj
+16 0 obj
+<</Type /Page
+/Resources <</ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/ExtGState <</G3 3 0 R>>
+/Font <</F4 4 0 R
+/F5 5 0 R
+/F7 7 0 R>>>>
+/MediaBox [0 0 595.91998 841.91998]
+/Annots [17 0 R]
+/Contents 18 0 R
+/StructParents 3
+/Tabs /S
+/Parent 22 0 R>>
+endobj
+19 0 obj
+<</Type /Page
+/Resources <</ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/ExtGState <</G3 3 0 R>>
+/Font <</F4 4 0 R
+/F5 5 0 R
+/F7 7 0 R>>>>
+/MediaBox [0 0 595.91998 841.91998]
+/Annots [20 0 R]
+/Contents 21 0 R
+/StructParents 4
+/Tabs /S
+/Parent 22 0 R>>
+endobj
+22 0 obj
+<</Type /Pages
+/Count 5
+/Kids [2 0 R 10 0 R 13 0 R 16 0 R 19 0 R]>>
+endobj
+26 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 25 0 R
+/Pg 2 0 R
+/K 0>>
+endobj
+25 0 obj
+<</Type /StructElem
+/S /P
+/P 24 0 R
+/K 26 0 R>>
+endobj
+28 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 27 0 R
+/Pg 2 0 R
+/K 1>>
+endobj
+27 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 28 0 R>>
+endobj
+31 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 30 0 R
+/Pg 2 0 R
+/K 2>>
+endobj
+30 0 obj
+<</Type /StructElem
+/S /LI
+/P 29 0 R
+/K 31 0 R>>
+endobj
+33 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 32 0 R
+/Pg 2 0 R
+/K 3>>
+endobj
+36 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 35 0 R
+/Pg 2 0 R
+/K 4>>
+endobj
+35 0 obj
+<</Type /StructElem
+/S /LI
+/P 34 0 R
+/K 36 0 R>>
+endobj
+38 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 37 0 R
+/Pg 2 0 R
+/K 5>>
+endobj
+37 0 obj
+<</Type /StructElem
+/S /LI
+/P 34 0 R
+/K 38 0 R>>
+endobj
+40 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 39 0 R
+/Pg 2 0 R
+/K 6>>
+endobj
+39 0 obj
+<</Type /StructElem
+/S /LI
+/P 34 0 R
+/K 40 0 R>>
+endobj
+34 0 obj
+<</Type /StructElem
+/S /L
+/P 32 0 R
+/K [35 0 R 37 0 R 39 0 R]>>
+endobj
+32 0 obj
+<</Type /StructElem
+/S /LI
+/P 29 0 R
+/K [33 0 R 34 0 R]>>
+endobj
+42 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 41 0 R
+/Pg 2 0 R
+/K 7>>
+endobj
+45 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 44 0 R
+/Pg 2 0 R
+/K 8>>
+endobj
+44 0 obj
+<</Type /StructElem
+/S /LI
+/P 43 0 R
+/K 45 0 R>>
+endobj
+47 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 46 0 R
+/Pg 2 0 R
+/K 9>>
+endobj
+46 0 obj
+<</Type /StructElem
+/S /LI
+/P 43 0 R
+/K 47 0 R>>
+endobj
+49 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 48 0 R
+/Pg 2 0 R
+/K 10>>
+endobj
+48 0 obj
+<</Type /StructElem
+/S /LI
+/P 43 0 R
+/K 49 0 R>>
+endobj
+43 0 obj
+<</Type /StructElem
+/S /L
+/P 41 0 R
+/K [44 0 R 46 0 R 48 0 R]>>
+endobj
+41 0 obj
+<</Type /StructElem
+/S /LI
+/P 29 0 R
+/K [42 0 R 43 0 R]>>
+endobj
+51 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 50 0 R
+/Pg 2 0 R
+/K 11>>
+endobj
+50 0 obj
+<</Type /StructElem
+/S /LI
+/P 29 0 R
+/K 51 0 R>>
+endobj
+53 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 52 0 R
+/Pg 2 0 R
+/K 12>>
+endobj
+52 0 obj
+<</Type /StructElem
+/S /LI
+/P 29 0 R
+/K 53 0 R>>
+endobj
+55 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 54 0 R
+/Pg 2 0 R
+/K 13>>
+endobj
+54 0 obj
+<</Type /StructElem
+/S /LI
+/P 29 0 R
+/K 55 0 R>>
+endobj
+29 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [30 0 R 32 0 R 41 0 R 50 0 R 52 0 R 54 0 R]>>
+endobj
+57 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 56 0 R
+/Pg 2 0 R
+/K 14>>
+endobj
+56 0 obj
+<</Type /StructElem
+/S /P
+/P 24 0 R
+/K 57 0 R>>
+endobj
+60 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 59 0 R
+/Pg 2 0 R
+/K 15>>
+endobj
+59 0 obj
+<</Type /StructElem
+/S /LI
+/P 58 0 R
+/K 60 0 R>>
+endobj
+62 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 61 0 R
+/Pg 2 0 R
+/K 16>>
+endobj
+61 0 obj
+<</Type /StructElem
+/S /LI
+/P 58 0 R
+/K 62 0 R>>
+endobj
+64 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 63 0 R
+/Pg 2 0 R
+/K 17>>
+endobj
+63 0 obj
+<</Type /StructElem
+/S /LI
+/P 58 0 R
+/K 64 0 R>>
+endobj
+66 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 65 0 R
+/Pg 2 0 R
+/K 18>>
+endobj
+65 0 obj
+<</Type /StructElem
+/S /LI
+/P 58 0 R
+/K 66 0 R>>
+endobj
+58 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [59 0 R 61 0 R 63 0 R 65 0 R]>>
+endobj
+68 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 67 0 R
+/Pg 2 0 R
+/K 19>>
+endobj
+67 0 obj
+<</Type /StructElem
+/S /P
+/P 24 0 R
+/K 68 0 R>>
+endobj
+71 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 70 0 R
+/Pg 2 0 R
+/K 20>>
+endobj
+70 0 obj
+<</Type /StructElem
+/S /LI
+/P 69 0 R
+/K 71 0 R>>
+endobj
+73 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 72 0 R
+/Pg 10 0 R
+/K 0>>
+endobj
+72 0 obj
+<</Type /StructElem
+/S /LI
+/P 69 0 R
+/K 73 0 R>>
+endobj
+75 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 74 0 R
+/Pg 10 0 R
+/K 1>>
+endobj
+74 0 obj
+<</Type /StructElem
+/S /LI
+/P 69 0 R
+/K 75 0 R>>
+endobj
+77 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 76 0 R
+/Pg 10 0 R
+/K 2>>
+endobj
+76 0 obj
+<</Type /StructElem
+/S /LI
+/P 69 0 R
+/K 77 0 R>>
+endobj
+69 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [70 0 R 72 0 R 74 0 R 76 0 R]>>
+endobj
+79 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 78 0 R
+/Pg 10 0 R
+/K 3>>
+endobj
+78 0 obj
+<</Type /StructElem
+/S /P
+/P 24 0 R
+/K 79 0 R>>
+endobj
+82 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 81 0 R
+/Pg 10 0 R
+/K 4>>
+endobj
+81 0 obj
+<</Type /StructElem
+/S /LI
+/P 80 0 R
+/K 82 0 R>>
+endobj
+84 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 83 0 R
+/Pg 10 0 R
+/K 5>>
+endobj
+83 0 obj
+<</Type /StructElem
+/S /LI
+/P 80 0 R
+/K 84 0 R>>
+endobj
+80 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [81 0 R 83 0 R]>>
+endobj
+86 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 85 0 R
+/Pg 10 0 R
+/K 6>>
+endobj
+85 0 obj
+<</Type /StructElem
+/S /P
+/P 24 0 R
+/K 86 0 R>>
+endobj
+89 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 88 0 R
+/Pg 10 0 R
+/K 7>>
+endobj
+88 0 obj
+<</Type /StructElem
+/S /LI
+/P 87 0 R
+/K 89 0 R>>
+endobj
+91 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 90 0 R
+/Pg 10 0 R
+/K 8>>
+endobj
+90 0 obj
+<</Type /StructElem
+/S /LI
+/P 87 0 R
+/K 91 0 R>>
+endobj
+87 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [88 0 R 90 0 R]>>
+endobj
+93 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 92 0 R
+/Pg 10 0 R
+/K 9>>
+endobj
+92 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 93 0 R>>
+endobj
+96 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 95 0 R
+/Pg 10 0 R
+/K 10>>
+endobj
+95 0 obj
+<</Type /StructElem
+/S /LI
+/P 94 0 R
+/K 96 0 R>>
+endobj
+98 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 97 0 R
+/Pg 10 0 R
+/K 11>>
+endobj
+97 0 obj
+<</Type /StructElem
+/S /LI
+/P 94 0 R
+/K 98 0 R>>
+endobj
+100 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 99 0 R
+/Pg 10 0 R
+/K 12>>
+endobj
+99 0 obj
+<</Type /StructElem
+/S /LI
+/P 94 0 R
+/K 100 0 R>>
+endobj
+94 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [95 0 R 97 0 R 99 0 R]>>
+endobj
+102 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 101 0 R
+/Pg 10 0 R
+/K 13>>
+endobj
+101 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 102 0 R>>
+endobj
+105 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 104 0 R
+/Pg 10 0 R
+/K 14>>
+endobj
+104 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K 105 0 R>>
+endobj
+107 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 106 0 R
+/Pg 10 0 R
+/K 15>>
+endobj
+106 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K 107 0 R>>
+endobj
+109 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 108 0 R
+/Pg 10 0 R
+/K 16>>
+endobj
+112 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 111 0 R
+/Pg 10 0 R
+/K 17>>
+endobj
+111 0 obj
+<</Type /StructElem
+/S /LI
+/P 110 0 R
+/K 112 0 R>>
+endobj
+114 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 113 0 R
+/Pg 10 0 R
+/K 18>>
+endobj
+113 0 obj
+<</Type /StructElem
+/S /LI
+/P 110 0 R
+/K 114 0 R>>
+endobj
+110 0 obj
+<</Type /StructElem
+/S /L
+/P 108 0 R
+/K [111 0 R 113 0 R]>>
+endobj
+108 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K [109 0 R 110 0 R]>>
+endobj
+116 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 115 0 R
+/Pg 13 0 R
+/K 0>>
+endobj
+115 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K 116 0 R>>
+endobj
+118 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 117 0 R
+/Pg 13 0 R
+/K 1>>
+endobj
+117 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K 118 0 R>>
+endobj
+120 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 119 0 R
+/Pg 13 0 R
+/K 2>>
+endobj
+119 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K 120 0 R>>
+endobj
+122 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 121 0 R
+/Pg 13 0 R
+/K 3>>
+endobj
+121 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K 122 0 R>>
+endobj
+124 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 123 0 R
+/Pg 13 0 R
+/K 4>>
+endobj
+123 0 obj
+<</Type /StructElem
+/S /LI
+/P 103 0 R
+/K 124 0 R>>
+endobj
+103 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [104 0 R 106 0 R 108 0 R 115 0 R 117 0 R 119 0 R 121 0 R 123 0 R]>>
+endobj
+126 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 125 0 R
+/Pg 13 0 R
+/K 5>>
+endobj
+125 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 126 0 R>>
+endobj
+129 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 128 0 R
+/Pg 13 0 R
+/K 6>>
+endobj
+128 0 obj
+<</Type /StructElem
+/S /LI
+/P 127 0 R
+/K 129 0 R>>
+endobj
+131 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 130 0 R
+/Pg 13 0 R
+/K 7>>
+endobj
+130 0 obj
+<</Type /StructElem
+/S /LI
+/P 127 0 R
+/K 131 0 R>>
+endobj
+133 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 132 0 R
+/Pg 13 0 R
+/K 8>>
+endobj
+132 0 obj
+<</Type /StructElem
+/S /LI
+/P 127 0 R
+/K 133 0 R>>
+endobj
+135 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 134 0 R
+/Pg 13 0 R
+/K 9>>
+endobj
+134 0 obj
+<</Type /StructElem
+/S /LI
+/P 127 0 R
+/K 135 0 R>>
+endobj
+137 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 136 0 R
+/Pg 13 0 R
+/K 10>>
+endobj
+136 0 obj
+<</Type /StructElem
+/S /LI
+/P 127 0 R
+/K 137 0 R>>
+endobj
+127 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [128 0 R 130 0 R 132 0 R 134 0 R 136 0 R]>>
+endobj
+139 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 138 0 R
+/Pg 13 0 R
+/K 11>>
+endobj
+138 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 139 0 R>>
+endobj
+142 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 141 0 R
+/Pg 13 0 R
+/K 12>>
+endobj
+141 0 obj
+<</Type /StructElem
+/S /LI
+/P 140 0 R
+/K 142 0 R>>
+endobj
+144 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 143 0 R
+/Pg 13 0 R
+/K 13>>
+endobj
+143 0 obj
+<</Type /StructElem
+/S /LI
+/P 140 0 R
+/K 144 0 R>>
+endobj
+146 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 145 0 R
+/Pg 13 0 R
+/K 14>>
+endobj
+145 0 obj
+<</Type /StructElem
+/S /LI
+/P 140 0 R
+/K 146 0 R>>
+endobj
+148 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 147 0 R
+/Pg 13 0 R
+/K 15>>
+endobj
+147 0 obj
+<</Type /StructElem
+/S /LI
+/P 140 0 R
+/K 148 0 R>>
+endobj
+150 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 149 0 R
+/Pg 13 0 R
+/K 16>>
+endobj
+149 0 obj
+<</Type /StructElem
+/S /LI
+/P 140 0 R
+/K 150 0 R>>
+endobj
+152 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 151 0 R
+/Pg 13 0 R
+/K 17>>
+endobj
+151 0 obj
+<</Type /StructElem
+/S /LI
+/P 140 0 R
+/K 152 0 R>>
+endobj
+140 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [141 0 R 143 0 R 145 0 R 147 0 R 149 0 R 151 0 R]>>
+endobj
+154 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 153 0 R
+/Pg 13 0 R
+/K 18>>
+endobj
+153 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 154 0 R>>
+endobj
+157 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 156 0 R
+/Pg 16 0 R
+/K 0>>
+endobj
+156 0 obj
+<</Type /StructElem
+/S /LI
+/P 155 0 R
+/K 157 0 R>>
+endobj
+159 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 158 0 R
+/Pg 16 0 R
+/K 1>>
+endobj
+158 0 obj
+<</Type /StructElem
+/S /LI
+/P 155 0 R
+/K 159 0 R>>
+endobj
+155 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [156 0 R 158 0 R]>>
+endobj
+161 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 160 0 R
+/Pg 16 0 R
+/K 2>>
+endobj
+160 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 161 0 R>>
+endobj
+164 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 163 0 R
+/Pg 16 0 R
+/K 3>>
+endobj
+163 0 obj
+<</Type /StructElem
+/S /LI
+/P 162 0 R
+/K 164 0 R>>
+endobj
+166 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 165 0 R
+/Pg 16 0 R
+/K 4>>
+endobj
+165 0 obj
+<</Type /StructElem
+/S /LI
+/P 162 0 R
+/K 166 0 R>>
+endobj
+168 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 167 0 R
+/Pg 16 0 R
+/K 5>>
+endobj
+167 0 obj
+<</Type /StructElem
+/S /LI
+/P 162 0 R
+/K 168 0 R>>
+endobj
+170 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 169 0 R
+/Pg 16 0 R
+/K 6>>
+endobj
+169 0 obj
+<</Type /StructElem
+/S /LI
+/P 162 0 R
+/K 170 0 R>>
+endobj
+162 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [163 0 R 165 0 R 167 0 R 169 0 R]>>
+endobj
+172 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 171 0 R
+/Pg 16 0 R
+/K 7>>
+endobj
+171 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 172 0 R>>
+endobj
+175 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 174 0 R
+/Pg 16 0 R
+/K 8>>
+endobj
+174 0 obj
+<</Type /StructElem
+/S /LI
+/P 173 0 R
+/K 175 0 R>>
+endobj
+177 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 176 0 R
+/Pg 16 0 R
+/K 9>>
+endobj
+176 0 obj
+<</Type /StructElem
+/S /LI
+/P 173 0 R
+/K 177 0 R>>
+endobj
+179 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 178 0 R
+/Pg 16 0 R
+/K 10>>
+endobj
+178 0 obj
+<</Type /StructElem
+/S /LI
+/P 173 0 R
+/K 179 0 R>>
+endobj
+181 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 180 0 R
+/Pg 16 0 R
+/K 11>>
+endobj
+180 0 obj
+<</Type /StructElem
+/S /LI
+/P 173 0 R
+/K 181 0 R>>
+endobj
+183 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 182 0 R
+/Pg 16 0 R
+/K 12>>
+endobj
+182 0 obj
+<</Type /StructElem
+/S /LI
+/P 173 0 R
+/K 183 0 R>>
+endobj
+173 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [174 0 R 176 0 R 178 0 R 180 0 R 182 0 R]>>
+endobj
+185 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 184 0 R
+/Pg 16 0 R
+/K 13>>
+endobj
+184 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 185 0 R>>
+endobj
+188 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 187 0 R
+/Pg 16 0 R
+/K 14>>
+endobj
+187 0 obj
+<</Type /StructElem
+/S /LI
+/P 186 0 R
+/K 188 0 R>>
+endobj
+190 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 189 0 R
+/Pg 16 0 R
+/K 15>>
+endobj
+189 0 obj
+<</Type /StructElem
+/S /LI
+/P 186 0 R
+/K 190 0 R>>
+endobj
+192 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 191 0 R
+/Pg 16 0 R
+/K 16>>
+endobj
+191 0 obj
+<</Type /StructElem
+/S /LI
+/P 186 0 R
+/K 192 0 R>>
+endobj
+194 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 193 0 R
+/Pg 16 0 R
+/K 17>>
+endobj
+193 0 obj
+<</Type /StructElem
+/S /LI
+/P 186 0 R
+/K 194 0 R>>
+endobj
+186 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [187 0 R 189 0 R 191 0 R 193 0 R]>>
+endobj
+196 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 195 0 R
+/Pg 19 0 R
+/K 0>>
+endobj
+195 0 obj
+<</Type /StructElem
+/S /H1
+/P 24 0 R
+/K 196 0 R>>
+endobj
+199 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 198 0 R
+/Pg 19 0 R
+/K 1>>
+endobj
+198 0 obj
+<</Type /StructElem
+/S /LI
+/P 197 0 R
+/K 199 0 R>>
+endobj
+201 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 200 0 R
+/Pg 19 0 R
+/K 2>>
+endobj
+200 0 obj
+<</Type /StructElem
+/S /LI
+/P 197 0 R
+/K 201 0 R>>
+endobj
+203 0 obj
+<</Type /StructElem
+/S /NonStruct
+/P 202 0 R
+/Pg 19 0 R
+/K 3>>
+endobj
+202 0 obj
+<</Type /StructElem
+/S /LI
+/P 197 0 R
+/K 203 0 R>>
+endobj
+197 0 obj
+<</Type /StructElem
+/S /L
+/P 24 0 R
+/K [198 0 R 200 0 R 202 0 R]>>
+endobj
+24 0 obj
+<</Type /StructElem
+/S /Document
+/Lang (en-US)
+/P 23 0 R
+/K [25 0 R 27 0 R 29 0 R 56 0 R 58 0 R 67 0 R 69 0 R 78 0 R 80 0 R 85 0 R 87 0 R 92 0 R 94 0 R 101 0 R 103 0 R 125 0 R 127 0 R 138 0 R 140 0 R 153 0 R 155 0 R 160 0 R 162 0 R 171 0 R 173 0 R 184 0 R 186 0 R 195 0 R 197 0 R]>>
+endobj
+204 0 obj
+[26 0 R 28 0 R 31 0 R 33 0 R 36 0 R 38 0 R 40 0 R 42 0 R 45 0 R 47 0 R 49 0 R 51 0 R 53 0 R 55 0 R 57 0 R 60 0 R 62 0 R 64 0 R 66 0 R 68 0 R 71 0 R]
+endobj
+205 0 obj
+[73 0 R 75 0 R 77 0 R 79 0 R 82 0 R 84 0 R 86 0 R 89 0 R 91 0 R 93 0 R 96 0 R 98 0 R 100 0 R 102 0 R 105 0 R 107 0 R 109 0 R 112 0 R 114 0 R]
+endobj
+206 0 obj
+[116 0 R 118 0 R 120 0 R 122 0 R 124 0 R 126 0 R 129 0 R 131 0 R 133 0 R 135 0 R 137 0 R 139 0 R 142 0 R 144 0 R 146 0 R 148 0 R 150 0 R 152 0 R 154 0 R]
+endobj
+207 0 obj
+[157 0 R 159 0 R 161 0 R 164 0 R 166 0 R 168 0 R 170 0 R 172 0 R 175 0 R 177 0 R 179 0 R 181 0 R 183 0 R 185 0 R 188 0 R 190 0 R 192 0 R 194 0 R]
+endobj
+208 0 obj
+[196 0 R 199 0 R 201 0 R 203 0 R]
+endobj
+209 0 obj
+<</Type /ParentTree
+/Nums [0 204 0 R 1 205 0 R 2 206 0 R 3 207 0 R 4 208 0 R]>>
+endobj
+23 0 obj
+<</Type /StructTreeRoot
+/K 24 0 R
+/ParentTreeNextKey 5
+/ParentTree 209 0 R>>
+endobj
+210 0 obj
+<</Type /Catalog
+/Pages 22 0 R
+/MarkInfo <</Type /MarkInfo
+/Marked true>>
+/StructTreeRoot 23 0 R
+/Lang (en-US)>>
+endobj
+211 0 obj
+<</Length1 19884
+/Filter /FlateDecode
+/Length 9787>> stream
+xœí|yxU¶ø9·nUw¶N:éî,Iu*İ	t't6d±I' °I7H !D°o
+"‹KP„°(¨ˆ‚ìHu‚EAQGg|î2Î¨dæ¹Í¼IW~ïVw'Ñ÷½ï{ß÷û‡êÜS÷º÷Ü³Ÿ[İ €VU£ÆfçÌOŞÑ 7 @Õ´YÕsøãş'ğ; X3mÑ±ÿ Uµ Ü 2}Nİ¬©ÙQk ¢ŞĞEÖUÏŸ 1 Ğ Úº™K§Ë>Ğ[ íQ[]“òü· Ğ ù3fÔVGÓF`. ¤Í˜µ`‰ı¾ûÌĞõ™Ù0­zõ_—} È š¤YÕKæŞhFËO  Î®Uk+u= @ßÀ?Ïi˜¿ ãÈ@Ÿ3¯vNJv5 dÁï)°£¢¸G`˜`<ğ@à	h‡Gğa]$p€Àzu<ÅæºÉ… ÚGıû Âö\{ÊŸöëé~q¨=œµšÿİ”èÿ€h­:òá[gş‹µ_ÜóÑîkOùß{J;  ÁG)İˆ€àô" l´ä"ä¦épu»:jÔP|Äk M«u øŒ:i)ßÊ8@]‰íĞ î•µ˜Ü 8Ğ‚6èùp‡
+˜ ^XvñÔ‘p@!†2^¨¾W~ùÑ6ŞÈ“n×ˆcpnŒÇ‡¸Ş+ãq-haÚhŠ\‘;7¬„»&¸ú„CoµË´E»V»PÛ@¦	„Q´„ÏÓ¦kÂÃƒƒO
+Ë…yPO'Ñ±d87PÈâÕA}ÑàHëJËÊ+{@"˜À ú•Q+ÃÂ!¢·ÌEƒ#Áu“>ÎØSìKÃ‡F{d×Cv_SìË`÷Ç´è€b¯Ù—ÎºNhWR×CÓÆ…Øå2=.<(,æb-õÒÑd(W ôâÃu½aÇZ™>ê#PÜÂ×P\ü«|úß_‡à¬ƒuLÚ´@1ñ:ÚheG›×5ÖÑ&hiG›bà/v´	uÜ ûa¿: øµï0†õ°n  »:¾ëºg= t}¶ã»ï a1,&_à‡ı£Úf+ÆÎş2RÖ6şZº‹müµàús`Œ…±dšòOò.^ìè¯Èå¯ä]u®Îqş87¿B?%ehã¯pÅüú-q¡Uİ¿&2­¦a*/>Â±ğV& ƒSA˜ƒ|x(SH…éA˜‡! aD s fÃX¨†Ù02aÔB,„™Póà¨…y0ê¡fƒNÈ‚>ĞœĞDX `:TÃBX 0êa6, 2`ô…,(„,È…^«ˆëˆ7¬Ó}Ş¡0
+FÁPèÿ?Rwıİ/WqCÌ¥0ê¡f¨´å@õŸã`Ô‚xSê*`4À]PÓÔ§«{œ*7Øg¨»Ÿóá6È†l¨ƒzc!L…,˜0Kím€¨ƒ™PÓU.€ù­ÒU«®X±×Mµ¾	šà|Ê>Èa
+Â‰¸_!”L!ÏŸ¸	ÜîM§•×}¤m|!?‹ßÎ¿,˜„AÂáAáAáyásMŒfœ¦IÓ¤ùHÛW[¡]¥•µŠV	“nø<nŸ~%¢ â‘ÈÑ‘OG~5 êÁ¨½ºpİ8İ?º>údLLŒ'fgÌ%}²¾\ÿ˜şÄ­Ï­Ï­Ï­Ï­Ï­Ïÿéçuı» 28DÆ{J¼¢8âèF…±=r®YÎğVMÇ{db­$ÜÓ¤©f‹E¯n©¸ÜUE™2:d±jz¦L’E²dÊœC¬iáF(rËqn±ªªÈGî"Ÿ•sËÄ=n‰(GJ2q»«kdZ±¤™â®*’-µ=,¬·YgÄ¢¢LÜRQsÆ¹«Š$*<µŞfuAê9»lt{Øz²Éí"˜ÅQ~¹B¦¶‰Íå.™V"%‹ÌY½cîôX$‹¹Ñ#Ê‹ìòšE¹A…^¯è`W×ÈKğN”û°ñ>óå
+8]ll¬åğ
+O•Y”E6Î |åW™«¼^¯Y&V9Ò=M†1F0d‹é6“”<¢úXLcÇx˜êõÖT{e´{½ÁxÅÙä–Š¼™2ïKD™Z«kDYã®ğÈ©HÖJEf‹Å+cU¦,¨ì–9»XãÓL-Ù Û®9@>û+‡W•L“ùŞQÖºÅF±QF»¯o•©m´§ªÂ\=Æë‘¼¯(»Æzd´›_‚¤dÊ‡æ¶7	ˆYëÃ¤"I”A*ª–ÉÔé2N“±JÖôÎ”Ã"£VçvŒÂT‘Í »ª¼¥ªX¥6ÜÑ¦wIQoK§âD8®W¤ÈÀ,h—dpËÔZ%–4JÕL¨*³ÁÌ"‹fÙÕÉ0™³JÕÅ%¢~åq9­ÂÃvİì!CİPKT$p%‹Y²x{[2åh‡¹¦º8SqÈX%Šr´{8›@”£¥"¯ÃîÆxD9F•—Ş!Ê1*SÄc¦5JÕ²Ş]%6V‰²^*’2åXÇˆq­)ö¦ÉQµÒ’L9Î1b´gÄØ@§ÙâM“ãÔ~ƒÃ±îñ_l¬[Æê"Yog&'k‘/šı‰!Ö"M’(sÖ
+±O¦Ö¢ÆF‘-ÓÛ"ÉX‚Íqö±ª=^9Ú=Tq­’ÉõÂúú â¤bİ2jFDUZFø€”ŒóÈ±R‘X"ë¤"9J’Ã«ŠÄª—ôEEEŒ©HÆjŸAk—×ÙÍ©ŞLÙäğÑ)Ç;|ÈÚ‡°6ÑáãX›äğQÖš>µ=>µ=>k“>-kS¾0ÖÚRˆÿ²P5bœG³dœÄ¬%Svt4uÎfv´uÎŠ£í¿ºO«_l•í³ûş,ˆöL9ÕáCÖJamšÃÇ±ÖêğQÖÚ>µéŸÀÚ‡OÃÚ^Ÿ–µ½¾0Öf9ÄªÂf;Ä*9¡JtK2V¹U‘b•œÅt¶CÎ¶ËÙ½3å¾Q*şŠ4¥êB‰9ößÄ0³İç„DìÓ	%Lãä¾½}<K<}¼ê.İØók8¹1O¥<ÏAœ’_®)£ı¦´°~0Uk¶âAR¡/l¯ùq€8ôWè—Á]]˜)8²âdÊ…ÿªŒîi…™r?‡€É*f‰C™K‰uXcãPi¨T-z¦š™×•Šš†Ş™òmLr¼T$S«L­*š/Šä·½¶1KÅ…™rÿëÑÄ¬À|² …°E¹Šù×hOyÑÜBm|’·ˆyÚp·Ø(©OHCªdÁ}£¹V1oˆJÔ]U#É¼»º¦Â#SwµYæİUÌÓİøLµ$Š2µICªÍ’îÂ"V¸[]¥J¼Ù"RÀ§
+î*&ŞZ-ó¿˜U¦6F„•ÁY«j‚´k-o¦< ÄQeŞä…4 0SØ9$‡«ãC¤¡lQ&ÅA,d›	pZ†q,q€dQãm°SdtE!V™·ë»„x3mJKb*{7JÜ!qU±çÆ-‡DìrHbãâ9Şí©0ñzÄŞ,_4Ø3åÁ×1W\7ZtÓgë	·C¾Íş[;äşöFQÀt¬±ğ×QeÁ%÷±gÊ%ê–™~Úœ¯–#¥¢ÀÖ™‚Jâ 1K*Î?Äá§Ö¢Ğ#ÿK•ú¥ÅlOÌ
+Í–núbñéêğÁmöWJ>èo·HA¾wÓÉ‚aŒ³ofáqYr~ïLyø¯ôpø qrAïL¹Ì!÷ë)—3.–Hb–8¤Qªqk¤ƒ)´\nÏ”G9š†Ø3å
+G3 F;šQíãhFµg,ÃjÏ”Ç1Œg8¸ƒá0`‚£ ÜöLÙãha©“=Sö:Z0Ğ7ÑÑ‚¾;2¨’á©Ğ$†§B“
+Mak–Ø3å*¶&ªÙš˜ÊÖdÀ4†SjÏ”kj¦3Ô©tÛ3å*]ªWébĞ]*]º[¥‹A3Uº4K¥‹A³UºÔàğÁ€NÎQïd—=S Û3åyŒéê]‘=SïğagA d8Uâ,rø``ç¬‹Õ;õ‰%=±4 2ôeî	€áŞ È–;|0¨s¾êŠ~_ dè+ C¿ßáÃ Âª ÈV@†°ÆáƒÛ;ç[«Ş©è@†ş` dè9|Dx8 2„Æ ÈÖ9š#ÔÌVÌÍ”p%Éb¶x½EvY[+siKBÁ:“^„WBÇ£Äpó—ü A¯„1¤uâÇÂX²	Æ$ØJşŒtÔÑMpœn‚Zº	*é&pĞM°†n‚ê[€ÀxÃÿµ|4 o‡s|8,ç/Á9:ÎQœãßåü_à çˆ­£R/Îiràœ À9¡,§—áœÚÿœ£Ó Î€Xş}8NÏh¦A²:¶ô·_ŒĞy0™~G¸÷aı
+æÑ0ø ™z …~G;	ß±æªğÍ8Âúéeÿı
+ær%p„»uä?@¤_Ã.®@pBíé” á^†Šß¦âÖuëºuİºn]·®[×­ëÖuëºuİºşÿ]üTH¦­4t´ñçù‹ ‚òa™+:İ,pHóõ:å‘”+<.Iƒ”Bµ€ ËË‘TsHÈ’ràù HFš]–±¦@‰«[ÁôºâS-¹9GªÃ"ŠZÉ9&£AĞ`~~S4(¥‚”jËËÍÏ/°±&>U0Lñùùy¹6N`°3'¿€4<ûûı«pkÁ„}bmZ¿x±ºíĞ»ÿ¹¡fÈÜó{îœ;¦lùÜúƒWïXóĞi7qÏæUG‡+‹\û§­ùtœò…Ï3ëÒ+w=±¨°|ïœ-û2¾låÈ’û'Œšê_án\°ğÑ‰.@£œ$É|+DAœKı>é °Fšâˆ.Á—[àˆÑ/ÙÈ˜MÛŸÙØÔôØÓÛ7‘¾~¼|ì”Òçß)…§[ğûé å$	ïœ ÄÅœD#åÇæå’t§)–„oÚşô†¦MŸÙ¾‰8Vò[Nãùïş—NSúÂXå_¸şZHqõ ˆ 8 "LabßÆ­ÓÅÛ­ñ‚:qÎŠ2Oé{¯Xó÷øYJûì%¨ŸÅvˆ“"28Hv™aû¦é6)R¿:ÊéÙDqyãü?Ş¼™­±µãÏ¸¾ˆÀn «qLKe»)ÈÍwªR•Rm[‹û:‡qö-1¤ÿ!%·ßF ò!ß
+$ºLŒğÅå °Fv[QBò¡ÿóİÄÂ·ş<œoumÔÎ_„HH`;S×]^„@5 ¬€‘iiÖTªK²c±¤}nl¾3'cb9±ú"¥jÿ\ñÿô·)xá_WÛ¯l8p`ãúÃ‡%Ÿ(O*pNÿG¿¨ÌSv(•Ë˜¹˜…Nå-@8@Şæ[!Ì®„ğ0Ä2è">)†íİ"ésóA£IG'yû9¦ägì€4ÒHÏÌB1ÓòÀ\ìËxX@%ş˜¡·+]E8$)SÍY^ÇDÊ&O·fÄ°mY,y8ˆäåÚ¤TA“ä³ A£…JíEøà¬-#7-©n¼wÂ'kßl«ÜÓ œ!W×á£³í­¹wuiÑœaUï´,xãÕYÊ«FEeGMâ/@/àê—&rH8"‰B@ZäHPÊWÏ«b¶5Í’fí%èzØÑ hŒ&“Ñ@-©¶ô<³QF¥”:Éåş¶÷á(?*_.8;ñÎjÎ5|¦iSó™Í÷-:<v\Å_š>ÿœVoò™µ¦£M§´ÚŸÊt>Ó¸~ùúí«––Î4ñ- à  3ùSèëÊŠFÊ	””	<¡„3€ã3b—àÈˆˆC„A«×Çhtf;JzIoÉC§ŞiaÒ’éÌó$Ç¤¬Öm\ßDe UãØG¸ÏÚíøéì¦’¯ä¿ŸqmMGíÉ3OZìÜ#p`
+'„C$\óƒ®xNJ3™‚9)1Á«‹ÔğŒÉÕR£¤ë8Çg1Z¸ü|âüÃ•Ï:æ½ævyêŞ·Z^´¹Ï¸BòGÿKVÛnÅ¿T”ŒŒÜgŸozÆY@^xBªÕ³o/èh£}øĞì0ÈÕ_‹aH0)Ï•¾>$ÒååRrÚ)ÉV)ÙbO³YÓ4º$æğòÓœ9¦x£‘G4Î ş)ÕF0D6óĞ¦š{=sFªuJŸïOÖDdzøå¯ÿõÁúÏWbÛC»›6Õl3ä12÷yÌıq}XøcQ‘Ï)W¯ÿú½+Ê¿7bŠòñò†}cWö´,Nµü^üH‚tÈ…|—3'Õ P`Ìöi ôÂ
+ÙÃŒàèmNï‘®‹„$Lº"M21èu&b‚1A¤§)=ıãŞÅ“÷(?ÿñkÿëÇÍ~rîÙe‹¶[1rî–-Êğ;ŸØ³ï±´ÆÇù-û×îëoŸÙTsìƒ·Õn™ipøá†'G?4÷®²úböª9wÍiÏ³qã¢Y
+¢n{BõgW©•¿ Éà`²‰A2Ò" WÆ~«€<©ï”Èu–'¦ØÒR¢Ã”ˆ@»(–étpÎS,¦ã&Û—ZlVüoØgKÖš>¿û`²™ùBã©¿Î¿üè†ÏîSb×>¿~óô-£K6pC÷(oı´>"|CTô³h<<¬ş¯ï=şÉ’&åK”^8²qß˜EL<@ñ€N…ˆW=sĞ•LñCê”––¦zæ¸nÑA³Hj¹ÏJû÷/-4¨ıb(v¨¿›à£ø“ =³ü(¤Ë¤°yB—óQ­^«ĞêµzĞ€F¯×kt‰vgá$t"rY$]4tÔßÚrˆØF
+•úƒ‚¹GXtZäxYéÃŸü¹˜ÔáÅØ1óÀEiŠ8v2MOò­	`<Wy‚e@d†TòØ‹ËRœğ>‰‰‰–D15Íb™÷‰³ˆÔØé.%Kœ%è*õú tw`,6<ôØq¥í%ì &œŞtät;öyõ¹}oñ­»Ï®<”¿sï›pîK—Ïö?æÿdÛª{ÙïP–w´ÑjT)på& p‰á!	reÌJºTI2+ÈH„xct”V 3šyf&©1Æ€%'¿ÀÈ”(äåÆ¦9sâ56×ïÙoW A2õğ˜
+yégÊû[vc¿/ş|¨xÈ^>¯Iùá¸rU9aIÜœÜó8ùË'8æôøb6Æ9~4ß
+ZˆQ5„•=‹»9Kš%»ÁbÑ[DàbÀ"é"?Z™£lVæãq‰«Z”•¿ıãm2‰|£¬Wæ[•MÊvÌÀ¤k³˜o>Àı“o…èå²”çh]·õx>´]1,|±åŒÁÜ?Ûßå²ü÷’)şgÉ¾u«’¾Ù¥ûÌa ¹Ø/(\?sç¤1¼ÎÌ2àœ8ï€:á$ÿ.¾u«ÿë-9ñ…ü°@WarDÀ¥ å	"¥eLÍ)¨
+J(9·8›Õ&©t£Eß]D&&#æš†X5KÖ[¸~Ø1ÿÇ­VŞx®Çş}ÙG“~uFKÇƒ‹~>;mımÊA¢øû§ÛZqô×WpÌï2{m–r6+?Iù~k|¾Ü7ßCå¨Å•ô¿ãÅ:Y|%x#'%½E/éz‹ŞÉ÷8à‡88@|şQ|«#iÎ‡óBùŸj-,	\‚İó?§Ş©?w€¥~ ØQ©Ü‡w©v—á²Re¥J¬…ZföL‘##´Dc4Õ™ì\W4Õ;õ!"§Ì,·[vğ¼rŸ.rcxÄŒuü?O¹x>(Ùk|+ğªnªö‹Hª‚ğz=Õ%¨tYŒç‡ùÖŸ¿|"ğ¬Àh3Bº+-.Õ¼0Õò”ãB‰­Œú8½I`IJ&“‘q	èÔ«£„ÜÅ¨åÃv´ãÛüàç}aT«Dóºçg¶×ğ­×\ôåŸ‡sû¦qıüSP&·ó­=]I`£vq9$¯7F©ÛbY$Oïäo­ıŠ–Øñ*—¤!¿“¾5ü­ÙíÇøÖk…Òı[\Ü(æÑ™~ä/B4˜=×¶Ú$>´K	i,ß-İæO>¡|ğñåıM›1óÊ‡ØkÛµßû•¿ıíZÇä“/•~
+Ç~ù99yB9ò•òr‡`šñvåü®êr\ÙLûÅ:™ÛàQ•*¤¨H„]¤!Ê¦ #ÔÌJõµ‚Ä2>^Ò;‚fä”÷›àì×y÷½|ë'—î}w…ÿ¾u£ÿĞº}M…Ö¾Ä·‚â™•jğŠËujÍ;EP)àê§‰ŠŒÓ‚uÚ."4(¡å::Æ¢ùq•ãÆ×•íÊåxÿ¿nÙßÂ·oÁ“UIş2Õ¿ƒoİä»iı–{¡¾£¢š­g¹ìfäHA–ú²„¡ËUtËĞÁrÈ@¯K/mé¶Prôj”L(*_]]~ièˆ?-Úí+Ú¶æÄ™Åï=¼ğ±y£|“y|ğc‹î?:×¾ö~š¸+%oõÂµc³‹^>¸p¯×am²8–Ö•OeÏ®\ıĞ±|+hX½Ä8¤ts“AıÔ[ò,Fyø ’K+ù¼¸u+«¶:Úø$U¿-®d–éáâîª ±+Å¥ñºD;ê™ˆEP=`ñ|ÒòöSÊ÷ÊWÏ¾vî$ßÚ>òÉÖ¡íŸÜíå'Şüà0w4ğ‹Ez6ä×4Èì–#äºr4"vÏêQ'²± éYÿı?6ã{ê²Rp\ BmxøÁ’íNõ™É š¾z2¯#°2ªŒùƒn6
+ =¡g¼>AÏ¼[ÁfKè‰3.°”Õ´´ NS¢,=¨|šØ›§iIÊ_*÷ú®fÇGd$¢æÆö´E„K‰WÜŸÆíJIÙéiïÅ·¶ßİúäÈ£^n]ûìÉ¾’á&sjõ®¾AWcqW¢À±z©Œ`Ğë-Á‘±±z±¨—ôè$qíKJâ%áù|Ò~¿ÿ<Éæ“;Ú¸t"˜Á]ºD¤€Pà¹àR
+pÀÏ*H¨Ö š
+V}¾Ù%İq	C%)^—!-5¹‡É ã)ËVBÇGz)=”î¦YºªMÔ„‹òÈ°×N-µ%Ï®ßz)†ÿ~YÃOqK÷^Ü7orÓ	:Q~ÅÿÜwîØµ[Öjİëçå¤®°åûÏh´‹fNøÜsÌ#éh£óÁM­zJxŠÁ}öd.iiyà(,ûò|`—+p¤yû~ºËòK¤àIY(¶›UàÖş×ë2Ä› ’{˜,ñYiéÚ !ª²€÷µ¥KIÏ’ÿ bp¼†„eXséÿ|gÕŞÌ¨Ô%ø—æõ­Û¶	å÷
+iøtåŠòWåªòqõM‚ÁòÂŞşèóËx€iÎ¼6®‰V²K–T&D$"p¬˜Ô¸+Õ”N-ÉVÀH“!F¦	e—|êM3k’é›¿\±öÛ-c¶õÍÉYİïàşİ»&<Ò¯àAÃ²ŸO½á_fI\g?ºüÆ'ÖÄÍ=’0jh*TØÒF(ß) di'ÏV9Î	D%*$€ã–”we2D†ƒdíoáx½®øx2i¤Æ§êc¢uŒhÔª»%zMñN›¹'USÓsòóZj4˜HŞåÿuiÕî¾‘T»çDMö»å¦u/m{âqöP#¡eÚ°”™©øÒ¿Û>½ñÜÙäw>¿záÍ!È8Z	&è	n—+	F!G‹R,ZÕuQz]-–Ï!â{&ôÔG‡kLh
+Z“Éh´˜B‘R¡Å§
+‹ÍFÆ?rî.wbÿŒwŒİÕğ7åËÅn\»#šãZZyïg[ê^yÓfm²¦¢£}È=òĞOmz)à9ñPéŠÖ!å¢5„§‚ê&zVx\f–¹KÕœ’Ÿ<¿,èÌ®Ä`_ÿ‹1¯+,Îj&Ÿjx•ò
+òr»ë—ÑBWşsÏ™3­ûn¯Ï°§wL¹õÜëí·q¯W{û„I·:"îÕ,ûLQ4›N†ŞƒáWL¼‰ğBJ$áxµ4äÕìáÈGy®¾Ó—­d)ºv
+hµKÊ#P£ê0X¥j›½ÂãÊîz„e¿õ˜+³ë	
+ZÕÖİğäuø^¯Ë’Ÿç°#¼-opşà>Yö\G®MJîa4Äé¡7öT«;f~sÀ_gN¼Å¨1ªğtÕÕšœr9y¹V¨ê~ñ§oW/°t—Üq÷¼>¹—¼™œñé™¬>5F¾ÒrZùÓ×ÿùı¼{î-½pş§æ¬ŞªİX×”`¨Èpgoioƒï5Ãİ‰é³İ»_ÑŒî“¾uCëîïWÿyß²9KÚ7ßs×ÔÛ¦×z'Â :XµîŠ9DÂL›Ym<”.íLV†²/³:tí/F¼®¨@—gSC­Ş:¼ÒKú¶/èÆ‡EäŸ{öünåXÓÁ dO(¾£òô;ş|rõ—_õ¿*€ÀN œÁ	å#ä¾Œ$5ã
+B±ºhY0'5»Œ¬“•õİû½®¸ÈH„ÈèÈh]”†gÉj×UàØ&D{õïßËŞ¯ß½{ø/ó
+òó
+ó”é×ÑR C3Lr…Ç G£‘pìÕM_Õ :õ€ÒeåjzÈNËVÕ Ô¬ÿÅ˜×™oˆ4G™ÓRõMG×)ÍeÕÎ~ö ‘e=R\Åãöläæ©äşëƒèğÃ#Êjè¿¯E<¾‚RMÃ\aÑºJYöl,U£# ,+ïÌX'pk»wz]‘ü/.6‘ïöXº„jëÆ	Dcİg¾ªÅÏ)Ë×>/Úÿ”1ß‘4=×(ÿ#D³LaÁ<@Ş!°ÿ###@J .¦fv¸6pç=ªô;ñ½{Càyá­„T˜Ôš’@ÊÊü„‰ªç“AË1…M™]I ËÊƒ£ZÒ}ĞëŠGèi7úè¨È0O!SÃ:³NµÎø€6³†ÿâ±İ~fÃó_ízxÏ‰a9‡ê—ï·…åŸ¤•¿ÇŸC^Çğc-ş'YûæÿIZúäø‰“¦Lé´8Z	qPñbvm"Nµ(Ê“ë­- :lˆÇë¬M­‡qÂ/	W	&­¯Û­´nfTæıV~/`i—^óŸ¡¥;&ÜŠpU´¢ ±{ºòú:4ôÎ‡¡ÛòbÀ™c2ñ†®£tZ¥|ßÖôå}}uëËÛO=sèàÎg|†Ø””?<Øqu˜ñ€¿åo¾}ıìW_²LO1Ñù´RÍ-îf¹E·L¯[2±²+/cİ«¾fé×EŞp~#cÀ®Ô-X¶3V± lí‡4_üé¿.­Ş›É…í}Ø¤ÍŞ=ó`Yß²í‰Çi¥òå+åkå“š!é³{)ƒ„œçFÜıÈëgÅËŸığÊ™¯Gç*&šÜÙ–ÃvÏšB)ëÊ®uE9KZïåÉ‹?7dUİqº2ÓÔøÔë2ÓÀ{©+!*pê1'¿ 3âÖS>"ëÀçú×¥Õ{²µ‰k”ÄÃ›¸-Û·nULøAútkÙtìIhÂ´ºáOÿû©:{VúÃGWÏŸÿ, ½œV‚¦vÁŞbêXEGÊÌìİy±ª‹ä(	%ÙLz&Uz}e§ËF`e½@Azõ ”‰ª/<:5úÙ¡ƒŒyš&ìmŒÕäì£•QÛ£'íŸç?JKß¬\Å<M]G·€VB«à“#æ_Vğ+¯«àí¡
+^¸®‚OÏ"×§9ú[ğÍ›ó÷İî>Q½~åâõÛÆ~ñÒ´Ã#
+‹·WÌ¿§ßŠºº­£Ññô®4Ë6K~å¨â;ûgŒšwçº-é–µ=3ÊŠœE·¥ÛFÏgtŠmä ?Àå¨CB9B‘I¹µ,Z¨/·–•3ïz»e4ÄÅêc¢"µ$`;ƒ±†rI–KyN#;5˜ˆ¾×æu}'¬ÿÔÓE58X9=e.üş¨ØM÷“ÆÑƒÿ®¬òßS7Ñ³«£ÒRˆƒ²9äº|O‰ª”¬æÖÕ,ö,éşZ(	ÄA\j\Z èîªõN}ŒÖháC	aÎßÏ}í}×Z·ĞÒkÇ¶ßá9ı6¹ä¤|wéU28XCs´¢ØÙ€°Œ­¾¬¼ëÌ0
+¢Õ³+çUç\çDÜ©T5Ÿ˜®‰,Œÿ¾Y™BKıõÅ»srw“Ç¯„ ‚™;;HŠ¡\çÉÄ²rikàìÀ–ÄD}"Û†•³ÙØ>4œÔ}­n«Rû«‰áš0«ù­ß)ïÚ‘¡ÑFd˜ŞlyÕd×j…^	;÷+ï²bôYYÛÆú×ÒRÿ®‰ûåìBîñ?Pº£_ÎáIdÒµclïé 4Œ–BóÈaÇıb÷±±±zUiYDVƒ2JxTY{
+-(TÖâ†SÊEåÂIÒ—Ä+qÿÿÛxZQ9K”8Jh){×çJKŠã9bÕ¼&°BÈHV‘‘V)Q=Cºn£B73)( Í?¤ôÒèr“¿jQ¤~G¶e—&™nO­œŸ6€–ú×Œß48g×xrÏµø'FhÖòÚúÉÛ¬h ¥ÆŞ!hI×«ù)R·à[„X}lç«yv”…®¡ıâõ_$mş#dòlÎ³êö£¬
+âO)`ƒaêÿ^4Œø ı4±[ëÿâT
+endstream
+endobj
+212 0 obj
+<</Type /FontDescriptor
+/FontName /AAAAAA+OpenSans-Regular
+/Flags 4
+/Ascent 1068.84766
+/Descent -292.96875
+/StemV 45.898438
+/CapHeight -713.86719
+/ItalicAngle 0
+/FontBBox [-548.82813 -271.97266 1201.17188 1047.85156]
+/FontFile2 211 0 R>>
+endobj
+213 0 obj
+<</Type /Font
+/FontDescriptor 212 0 R
+/BaseFont /AAAAAA+OpenSans-Regular
+/Subtype /CIDFontType2
+/CIDToGIDMap /Identity
+/CIDSystemInfo <</Registry (Adobe)
+/Ordering (Identity)
+/Supplement 0>>
+/W [0 [600.09766 0 0 259.76563] 9 [728.51563 0 294.92188 294.92188 0 0 258.78906 321.77734 262.69531 366.69922] 19 28 571.77734 29 [262.69531] 36 [632.32422 645.99609 629.88281 725.58594 555.66406 516.11328 727.05078 737.30469 279.29688 268.55469 0 521.97266 899.41406 752.92969 777.83203 601.5625 0 617.1875 548.33984 550.78125 729.00391 596.19141 923.33984 0 559.08203] 68 [555.66406 611.81641 479.00391 611.81641 561.52344 336.42578 542.96875 613.28125 252.44141 252.44141 525.39063 252.44141 925.78125 613.28125 601.5625 611.81641 611.81641 408.69141 476.5625 356.44531 613.28125 499.51172 774.90234 523.4375 500.97656 468.75] 906 [672.85156 588.86719]]
+/DW 0>>
+endobj
+214 0 obj
+<</Filter /FlateDecode
+/Length 316>> stream
+xœ]’ÏŠƒ0ÆïyŠÛCI4¶´ Bk<ìÖİ°ÉèÖbzğígÜöÃ÷ùı&ãDQÖ×ÚÙÈÅ{u‘wÖ™ ÓxøzëX’rcu\>õĞz&ÊúÚÌS„¡vİÈòœsñ½b˜ùælÆl™x‚u=ß|•Í–‰æîıà"—¬(¸‰ò¥õ¯í \ ¶«¸hã¼û*›gâsöÀSÔ	u£G“o5„ÖõÀr)¥,x^UUU0pæß{EÔ­ÓßmÀ´*x.e*T'RTªDµ?a¥•9şUxxÁ˜¤tz¤Jªd-X¢™P2¹â¦(™f!3KÈ$\QwájOæ™ÚJÑÌß~@\1¢ËyÕEÊõ¨åe*Ëí=F®ï!€‹xÅ8æeÀÖÁã/ğ£_¨eı¢ØŸW
+endstream
+endobj
+4 0 obj
+<</Type /Font
+/Subtype /Type0
+/BaseFont /AAAAAA+OpenSans-Regular
+/Encoding /Identity-H
+/DescendantFonts [213 0 R]
+/ToUnicode 214 0 R>>
+endobj
+215 0 obj
+<</Length1 8256
+/Filter /FlateDecode
+/Length 5054>> stream
+xœ­XtTå™~ŞïşÌd“L2™ á^n&@æNù#*è8“…B:ƒfÈ‰üµXE4ˆ¿µíÑmõÔÖãé±îwÍFŠ»v[ë
+²u»ë9ëzh‹véº°êVÛº’Üì~w&!Vp»çôÎÉ|ÏıŞ÷{ÿß÷Ş	€û!!µbÕüš7vı@HumM÷Ñmt dºvïÔšvâ€üÏ -ÙĞ·qëúùSïŠê oşÆô> … ÎpoÜ²wÃ#ç’®<­=İéŒæú{J hèééN{ç)i€ê ”÷lİ¹ç+{ó+ö€·ôv¥ç–…g ¬Àí[Ó{ú$OÁ‚@Û–ŞÚmÜ¼ø%@-èõ¾Ş;ÇB@~AïÛŞİ7k~Ù=€ô“ÿõ©C„Ï‹ñ0è„†o`‡ºß›		Î5ö—BÖ%.Ü‡GŸ<‡/ä¼ï9ìHœ|-vv$¼rkı)Ïº‚E¿CÛ!¼õúßıA¬gö½ı­ù£ßñv‹Ó*Xî¤,ŸcÇ¡ J­|
+ÀÙ•B{êóv\¼ZV¬h¡§¡!™µÍm³C 9gäµÊˆdÀÑ$<ô;¾ŠUF»“·Bg_Ã<,ÆhÇMH9;s±×¡bgìİÉŸÏù~ù«­â§?÷&­¦ûiˆN³ìf¶Óù<Æ~.ÉÒénéné”<[Ë»åçä1yL©OáGãê˜ÿ‹ÍaCè`CXü'Ûÿ'\òcHL¾W J
+ÃÊtô+ç1,ïÃ°œÁ°rıê,³g1<qö †]‡0¬Ş…au-ú5KS®Ç°Üƒµò·1OÍÇJ-à:;cX6Œ¿ïHXD&9½è†]}\±hşÓïÇæµ@´ÚƒJg+ğ¸û€{—»—u©7©+äf¥Ş=ÇåñäˆßT«w¨Û±Iş’¼Š-•«UŠCôÅ®Ëí×÷_±¿Ó€¾ıS÷{ ¦TZÆ®ËGôA~Q”U“UN÷­Lğè}	qŸi²æŠûa7²hJ­9bë˜{?HŞ×Õ9NW4ğuõ Ú¯ŞFİrR^ÉZ¤…ê<Åã­¦±\>l14Q2*ššş|Ù¤…´¿ÃïD÷ÈkÛ¯œ;/ï;oû/ÒÆÎ«~y­ØSNWgåèUT…ó8¯èÎ9}ì?m?ÕPØ“Ÿäãc^¼;€üœ|lìÃ±1‚¼7Ø:;vµíwÖù¶b¿•µN¶Mèw´œrlqôãNà1<Æºìß³3ô¯œ~ûÌ„¬]yQêT~+Ÿc­R~+]«üVş‹RÈ	€kÄ”ó <Ÿæ0¡Gs˜ÁçsXB5nÏaeHå°‚%˜‘Ã*f X>tcV!mØbèÅdp#º±;°	½Øµ¨B5ªQ‹«¡a'vbÒØ…èE6av:ói7 
+¨BæMÈ×&4h&KlÁ
+¬@®ş‹Æ×ÏËŒ£}Ø‹íØ„èq,©Aµó§¡=è†vI[Ú±½ØŒnt9§®s<êA¯ã»ğ§Çñµ;pæc>6b“Ã±ëQ….ôb«³Û‹^lÄtcƒ±Øù]İ®¬Æy tØÇÙ^eSQ-Öè§¶@1óN×-¬UY‰¿¨Ô¨`>ùé<|è“'e.ĞÇ^¶«?zß®{é(ÏÅöq–™Ğ:õ#'‹üÌe4Õ×±9µ"–yôÉO=üÈŸ
+a°¾D¯¿ÿ½ñò1»	ú¶|¥,I.Ìš€LÄ@Á$‰İÆ¤u
+ILZ!Ë€ì’]ª	’Oõ–†‹ëõª×KÒ™‘YÒiÎ[oÙûŞ~;û4U(ÇáBD«¦’Ì¨U% =`¬¹"1¢=Ôævî"w\pù|>—wzX—tI'Hªbs¼Ì%É7Ûl2™ö1uÔŞìÑuÇĞ\›èû;ÊñO›XŠ:gßÚ;oŞŞ-¥¶èˆa@şXB!¦c6ê£5.Rµ‚©¤ÈLÙIÊ¦`9dÙ	àj›1cÆìúìrİÔ\Ş`¸X×ä¿ê*™ÉJü²¡SmMC}]…aø|94L¯R9™»o½aw‹ı«ÿ=MGöì;ğÌ‰¶õ}UúÎ?ÜşıbOÁ‡v¼zFÚ±zUç£¯Øwo¹ye·ÈcÿØyù•“ba´nAšÇb$µÊHiHÒËAÄÒ`ìNÖFø½ù.A
+*Ş@˜f‹š©­iXèSUcv9«¯+*¯­	”º**¤ĞàKõròÈ¦ôñ]ïØ§øÕŞúv&Óñ¬üšıñÙ÷Æ07dÌ5~H+Ïœ¦Î-¬™s˜ˆœ²KB|˜-cÙúZ>²=hÓCúlÙ;#L…ĞuŸ^#)N\j5e—}³}¯½N¥cöß¼yò»èeöı }¿2ôŒı£>úõÈõÂ{‘!¦a
+æE+ AV$yã$mŠ2®Í'®BÕ[ÊJr2’–§ló+C¶ı·¶}0'Y²Œ¨&$ã³’'„*Şà$™ôı3iÉè9úĞ.òæ²¤ÌQNBÃÕÑÆ’X!AšI²Âˆd¹U”º§ œ,İáTDwR[qE(d8–“.2¤Áw1AÆlU-ñNútö.kÚñÉ7íaûi‹Vÿ~ç;·lŒ?¿öà«[Û;»y®}NªõTDè.ê;KíÃ5s?™]uû/¿şĞé;¦ºhAÖkeƒO=:22mTH’ú—3ºDÇ?ÊûäèKö	j`qªgı£÷+C£?f‹s‘¤÷•!H˜8İÂÈéç-VòIŞÒp­O÷Sƒ2ôéÒ\V¯U† 8µãôKIÄØ&)P|>Ù;Í9çœd+•¡KÇrúÔR†PŠŠ¨Q2…¨Uhì_®È’ä8 ¥¾b_©êÖÉ˜ÉJ„$ª%!¯®¡a¡A’a?ÇòÜö9z–Ö¨ÔKÏÚ¿TÜ,Ï>(ï›÷İcËFÊĞ…oËk?]Ê6}fŞ…ƒ¹¾¦Á‡™ÑàÆÀ¨UŞ¿œ²ø…¢ìuŒ@ 4«¶¢bOW^³wŞ“§xdûdû\²[¢R¹£çç=£íÊĞ…»_ëfGÁœjúr
+:’$§VîXÆp'ÚÊC†Ó]~&_lj¹H­.»1›)¿yÜ~ıƒ÷í“?N¼Oµ_x“ÿø§ßş•ŸXìô;ö÷§Îwß¥•ÇÙ/üú¬ıßä:{–Üö'Ù—¿çTJ1j¢óE­0™6©$\!'iNº¦æ
+½ùÅS‹=ynShŠKg*ª†áÓ}Š‘…ìIŞüÉ›ìôãÃî~BúèÍı¿¸oôÑIm›v¾‰Ül¹^‚¥¢›\Äj¿Ia]$ËX§:ú¥l™Š}¥…¥Só§xòÜğ’×}Ñé4ÙŠ
+¶ÂtEëí×Óösö3ßµOĞW×f8ğ2ôÖéÌ×zôÑ»Ù‚ÑŸ	“vmÌô$DÍ­;/—*'1UÑp$V¦2’I­“ššh<=¡Hyvøùe}öŸÓÀõusª¤úºIÍ]â”Îdr©ıÛ~ï=¿Ú¶=½ô®•µ{¶4“çß¶ÿì¶L÷Ó«kúº‘¾ö“³	Òª–&âÛšæLkÎ<”yåíúšÿšéˆµ%cõ;a ‹w‚Ñi"Bló(h¹âÌö5;oŸ°wÈíöù(1Û¾¾0v^¿F‹ÄŒÅ¸rá(B‘Q\®x§‡ÉçWeCC½O÷ù}ÊÚöG¯Û¿°ß ú¯>òû•¡‘¶¯ô ÍıXzaä®<úÔ÷¤;²¿H•Z'Ëztf‰&–»8zzx³S€H<ég²ÒkØBRjíû»®¤b—¦«ê¬Y.*“Ey"°÷ iŞ»·TÚÕá:®¡s¢åzÀ-‰fCbR»:?z+føÊ|bTéR•4Ç+¹ÄËEqVeñp·°Ÿú©êø$ÉWâW_±Ÿ¶Ñ‚N¹bºªN+ó¼I¡7ó‚ÓU×ô+¦6I¬¹u]YÙÚÍ·LeÊĞÈ;ózxAíƒ÷„¤Ú‘Så÷>´ æ¡«¥™YkeñDr£,:]•AÌµÜtÜCmEE>I„œtòé>ÒÙ—iµÙAûu;HíÒ-lÍÈİ£¯²ùÒAp˜ÇêDsRÓ–Ã»rWW­Iğº Ÿ›LmĞV'8¥³?D»ŒõA]çHrÄ¦Aâ©X„“ÉµÔ†g¦¡z„K¦–9"ùK‹óâ¸–JÅ,æÇ¬ç,Ş¹Gãùgñx:Ãåö=ƒŒ±x*Æõî2]ìzK(V¦q7bƒÅTOÅöDwr0@ÌQ(›\
+ó’xBèãx<ÇÔ2¹ËkçÒÔxsW3W›:—BÉ›º¡ooOè<šj¼Q ÆdR³²ÜéŸÛĞsw¯ôjÁùr{BÛ ¤5îiO¤‚×Í#Pƒ@©`*™L9ñüxGG‚c™`Öy~<¸ŒÏhæ²ôp!ºÇ°‚õÉd&äN&s$µÄX2ÂSkÖ¸Jg4îŠ·'¸Ëˆq·êz’S*ÂU'Ü\
+kËµ>¦	¢p7˜5_|sOª¹‹+•ºÆİqm@à¶ª•—+V&RíÁtG2a$õ¤Æ£«œÂA—œ)î2y^<<–M³ÛäyFÌĞ8ŒXš³õ8uqJqWe„ç™š°Öï–±^x4•,©&ÇZ9˜çE¼9V©OÎó³…”Ÿ•Baƒ#ÎåPJk0Ò"©N°	áZG'Æ¥‘nÊª˜z™ã¼¼=!G/uÈk:™š©¹=¡=Y©Gxi1ÖÌ3é¦/49¥4Ä—
+/0bI^(î:/tòå35^èE–Ñ5`¤¹/ÒR÷1#Â‹Ìe	KÎ4%ËùÔncO„›ËV&–­Ênõd9/vöı¦…¢øê„UTç”q_X´g¡˜U ¾
+Y(Æ)`h\
+µ',>.‡bšP[X©œÒã8˜¥‹#,äì$yA¼…Æ[Rœ}6Y—I¡Mœâ×‘“­Xsg‚1­™{ŸjpO*¦¥şzÚ4‚ÅˆÅb"~#Æ)mùİa~(œŒğ€i¡$á¥¦EbfZL¬ÓMKëÓ’Å4-E¬e¦¥Šõ
+Ór‰u¦i¹Å:Ë´òÄ6ñøs5µ¬3ahUœ¾$º%ÂÍIÄÀñ¶,12‰X1AÜ%j&xAø²~rJÿ ëªğs²ºiAGølÓ"±¦ÅÄZnZ’XC¦%‹µÂ´±Î1-U¬sMË%Öy¦åk¥iå‰µÊÔ9;ßÔR|ZJ‹œRq'¥”âU¢f«M>?ÌçWFøSÓZ´ËdÓH7b°!GPx_3bË«6‹Šã*-…JšÕIÇËÚIá¹O©Õ;–×›Èñ4^'§ğ%mûuşƒÕtÑhÕQ‰ğµÁÔi-—±Ÿ#nŒğ…fUé¢oü¿X9Å»#üJÓb„´*­EŒÎB7´-FZK¬Š©kÄ‰Jü•~•Éà¥FŒË!.‡6+1>%î¨24mÑ@c„_ıY6­*+«Flœ[ã)1S¢+GdMÑ‚Gä
+eF2&&­'®Î	cIŠ«ñ?n×”˜vÙ§’Oe®ÄÓ™ö—ãé Wâ)1éşøLÚĞ4.WKÒAƒ{âKÄËw´¤´K)1²3U§D2”Pš+Ÿ“Êå
+aDH!…R™Ü$½¨+á‹Æc¡iW*r±05Føâ	÷8ô%F‹P*²xÍD…3ÙHst&ª´E†î<os›š°+—
+®†¸ºaò»K6‰—ªö\¶Qò×N²$>®”xÁùc—ÇS5­JDq	/'ÚƒÉ„¶(YeU“?á×}†Úlÿ5vÉ³_t"nò«Â_¤°ÉäW‡4m‘¨±ÆË³r5^Å«ÃŞì¸,ê³"ù4Ï7bY×EÚ"­ÊhÌÉ_bZ9?òÿ,é–?WŸÄ[d4õIõ¢'sv¶˜®
+GåzÓÂÕaİÈÅ%çÍDn09J²m?ÑáÅU¼¡2Â—^f™iüÅ|ae„·šüÊÊ_.¢ØlhUÚ’#=­6S4_ğæ °$áíæ H€•æ 9;æ 9;«OK8Â; « 7
+n2 ˆ‡#<a¯NáOšG(»·Æ<BÙ½›	t‹àsĞ—ŸƒÖ
+>­:›Ã:H¬:è<×‡#<#xè<l<ltìj
+Gxc—@›»ÚìØ%Ğ­]mqìh«c—@Û»ê5-,šH`ŸsÇ£á¿-¯Gøvtç.ğ¦E9Y(xv9<”ãÙmZX<!µß¹sNìÉBqbo
+ö¿0-Ê1ìËBÁp{
+†;L×LÈ»Ó¹sØ¿œ…‚}
+ö»L‹r_ÉBÁpw
+†{L×NÈ;àÜ9ì÷f¡`?˜…‚ı>Ó¢ÃıY(²P02§8o¶\ÊLjNzPO&caîîæRyûñ‡uä qú
+endstream
+endobj
+216 0 obj
+<</Type /FontDescriptor
+/FontName /BAAAAA+OpenSans-Bold
+/Flags 4
+/Ascent 1068.84766
+/Descent -292.96875
+/StemV 83.984375
+/CapHeight -713.86719
+/ItalicAngle 0
+/FontBBox [-619.14063 -294.92188 1318.84766 1068.84766]
+/FontFile2 215 0 R>>
+endobj
+217 0 obj
+<</Type /Font
+/FontDescriptor 216 0 R
+/BaseFont /BAAAAA+OpenSans-Bold
+/Subtype /CIDFontType2
+/CIDToGIDMap /Identity
+/CIDSystemInfo <</Registry (Adobe)
+/Ordering (Identity)
+/Supplement 0>>
+/W [0 [600.09766 0 0 259.76563] 11 12 338.86719 32 [571.77734 0 0 0 689.94141 671.875 637.20703 740.23438 560.05859 548.82813 724.12109 765.13672 331.05469 0 0 564.94141 942.87109 812.98828 795.89844 627.92969 0 660.15625 550.78125 579.10156 755.85938 649.90234 966.79688 0 624.02344]]
+/DW 0>>
+endobj
+218 0 obj
+<</Filter /FlateDecode
+/Length 281>> stream
+xœ]QKkÄ ¾û+æ¸{X4…B`käĞM÷$:I…Æˆ1‡üûg»=¨|ã÷Ğ.›ª±& ÿğ³j1À`¬ö¸Ì«W=Æ²$mT¸¡¸«©sŒË¦j·%àÔØafEÀ?q4Kğ.zîñÈø»×èáp•í‘ñvuî'´+KĞ80._;÷ÖM<ÊNFLØNWÙ>_›CH#Nè5jÖ¸¸N¡ïìˆ¬BˆŠº®ë’¡Õÿî3Rõƒúî|dg%B¤¢dtì(«"ÊdDççètÓäÀ—HÄNŸÈ)'DÅ<¡bMö”™KJ9SñBaé-Œì÷ì¾·G­Ş£q±%{3ŒÅûÄÜìvÕ¾~ì€‰
+endstream
+endobj
+5 0 obj
+<</Type /Font
+/Subtype /Type0
+/BaseFont /BAAAAA+OpenSans-Bold
+/Encoding /Identity-H
+/DescendantFonts [217 0 R]
+/ToUnicode 218 0 R>>
+endobj
+219 0 obj
+<</Length1 8680
+/Filter /FlateDecode
+/Length 5078>> stream
+xœ­Xt[Å™şfîÜ+ù%[¶$;QB®|-Å±®œÄ'6A‘ü"ÎÃÎ¤ÄI¤øÈÛ$54áá@Nš-Ú(I`™k—èH
+e¡é¶çì²í¶åµ[Z/Kiw»[°¼+ÉqHBİ½÷Xÿ?ÿÿÍÌÿšî1 !!¶bÕìŠşé'r@¬ck|‡4_ú  ØßqÓ€Z»è¶.€Õ¤±{GÏÖM³sö¿ lÙ=ñş ò Œ°ölÙİ}òTñ	Àú3 KéíŠwÎøÖo$ º··+ó*û%@æ(éİ:°kåÇwò~€lÙ²½#^¬jè €Ó[ã»vH¥¹Â–?P·Å·vùšƒ·ÊG yoÇöşñ‡P‡ĞïèëÚ1cö´ı€¤ÿÅ§<ñqäBø¼‡áÂÈ ¸Ÿâ€ÜeË†	æ3~L¬u‰‡ Ö{Æ2N~rll^Æ1sÅÉÏ:S"áåô9õsëş¹VSñÖÎüIĞ·oşù‰Oı4ã˜u 45“±¯Ã¹’ğµ$¥çPA\lÇù§iÅŠ&ò"TìLÚfMĞƒ yÈ\´Y>%"˜;	¦¯‚2ˆ¼!¬P1Ñ„8º°×c°s|Üœ_Òt¢×c+ú„füİK½Åä‹=3P{ÉwÇeßW¾øK™ï´À|7Òãô8ı~(µI_—ş‘Õ³zvû\i¾_FËi¼º2br(ÊÉsVXÑ±Ã€%Ì~øğ ®Û çd¢Ì¹îµ°ŞhİN;”k•¬A®²Î´df¦”ßPîQö*}ØÌÖ³Ut‰t¥R.›J{hq¶wĞ38}p¦Àìƒ9ƒ™@&²Ê¸C‹³¼Ä+ÔÏ‰´Ö%äÎ¶ŞãÎz£TŒO[‘ >ê6f
+ÑóÖA¼³cuZ! ë>åe§rébQÖF›¤ùÊ,9ÓVvšŒàìƒ¢~DîTP_ÿÊï…Ï“xqPT)k.ùõñQÖ>>š(8¯U¬y|4áÏ*SïÀãxÜÔÏ y†){
+Oá±Ã ;>şÑù± ì0ûæøGãaCØ‰ômòÖxmÂiÒÙ	ç„|)]:Ù6ù“”uçÆGåORû‹Ú[…U´#ñ_ô'äÜxmÂAÿFb®5¡—Ÿ“VËï²_Ò¥Ä'¿+ÕËï²ßÒ ñì^J‚:ş¶ Ò©8JÿÎ/‚ÿ¢{Èobï6ìoxX6Lğï£íCßÄø7xšÊxØäçáiA-½xZÈÙècï'eR–Ş@ıg¨é¹J%ŠkEçcfİı2ÅäãG)Â†ï§x	Õ¸3Å3£;ÅËh„šâsØ.lÃ*Ä±ı`%ºĞƒ±qôát¡ıØŒíØ•(ÇÌA%j¡b èF7b ÛÑ‹ÍØ†¨(ÅM˜‹rÔ ó0kbubõ3ûL^·	+°M¨ı«Ö]8ºx—0¶cv£›Ñƒ^Ó¶
+Ì1ÿT¬F/º ^ÒºVôa;®C:ÌY‹M{±İŒ†ğ°×ô~ú±³1=Øl"nÄ&”£Û±Õ”nÇvô`ºĞmÆp ı˜mÚÕeî•Üq¿Göãd¡ (¾GH„ì#ËKŠ©­È?^ue…ËéP´bßÑú¹••së{kk®º
+Dœ"ú–|
+¦]”²s€]XnŞœ’]²ú	Ñ}kì×'¨G>õç%ò)Ğä®l²PˆÁi ñ¿Şà2P*Å!Iû¤å%%%ÅÌ6Õ_0Éû¥ìISéWÍµµÍõ‹}zî¼…{ÇGåùuxP¬É#µH3“)!Œ-‡•Aî$Ñ8(İ»Œ¥cPàóú´<Å6ÍO<vEÑŠKhÕ¼ü’Ê
+W¡ÅçÓŠêtä»*+ªçÛ=Ò2Şÿ‡£ï%~øÈYõáŸoXÜv¶wdü›şürÇ¡…‰'hb¬v¦ïiûÍ»dåw³¾ªU|5ññsÏ&~´0¼(¾66ŒJ¯³µpÃ‡ƒ¶)„¡ˆHL!Š,-máSZ#Á +’ÜÆ·3fŠBâ"ø»ÈrwP»‚]fº¸.%ÅWLs9ì¹Y2ƒ›¸­6—ŸT¸œvm¦&œõUÍ+ñÎ¯š'µÌ¬®&Eq:„»Uôê|·jmøæ¡£g#™ßÛ³ıšc•K^$Í{¬oÃ‘çÙZşÒXá#ëÖ=xü·ZÃ‡ú*Š÷ùªÇÎX¬7mÙ°ö‘G„¿}ã£¬JqÀ‰bÜ{*?ƒ2™¤üœJw/ƒ,›¹\f!ÂI¡À>,w·ğÒÖHĞó$iW
+©$P`=ğy˜h4XXè"¸bš«¸°Ø—k³Èp§ˆ‡\Líyù"á•>_•½2›™ÕUÉ¸8.ZõÆşûÇ·˜›Í¬'oŸb™}òz~äà³ÜŸƒL#EÄM<WÏØRLıŸÑcKº‡^}ùŠ7ı»×_ûE:¬.LG8Ì&”ä‰Ò¥A¨LzÎ[zÁÙ(*$pO-œ^4İ›iUd¸ˆ+•?—Óéq™EéY„}^~ua±bñø|tÍİ¯^7–%=ÿxïÃ×¬:¾ıßïì|ë+Ì¥õä k¿åW÷ö¼ôšÏ{Ä[L<$× Òİwşı±¿{DÜl±™©Ög$B¨H“È@¡LÛ-,K_)]†Bvà"M4˜À	gAqO±Mõ»ÃRYmk»fÏAµkv²&#«â¹^ş‡‰ÓGN*Äìkë¯iáÍ±jú±¿qvì¬â ·é•ßAr±¬…Ï&™Í„`ï2™HÒaİ.ºÜt
+!‘@6O–GƒÙÙÙ¹Ù¹¶‹Œ,’¥¤N‚#y
+ª„AlVmí,ÿ‚·œ”ß©ª™_]=¿¦*ÑıÉiÖœŠO‰â@>®fäÚ²#HÇ(ŸIÚ-úâe§T!˜,Œ³ä#¿ Šl›"£ˆÈÌ'•¢…Z„«jq¶M#[Î&šÈ[¯&öø–âøôŸJûõ©İ3Èş„>v7µìIô+$­RÎ°vcı©E4™6qº\Œˆ¼X«$R#K4eÖT(Êe)­•NVFƒ…Óİ….§Ã›“a‘ŠIqÆD×˜È]šV&ó*ˆ¼æ™Ó'Ş{èğ·Ş?~×ÉÛ§dT<¹yïã¾Œêï²öï½9VA_!™§GÆ¾.èkgÆ¾Ëš¿¾fíú×§kµ£ ­Ïä‘óN˜µÅdzaİ±=É‚”Éug'Èµ¥/ ÊÅ†›ÓSg_=‘8õUaeÕwXû?MÖÜ0v†5?xíºô¹±vä`ŠyIRº½¤ê}–—x½æıEò û|Uy¨¬p¹äd5»‹%~?zä/‘Üß}{ï§ßèÉ'~è©'¢¾ÄÇ‰Ÿİ1şmb#¥·üğƒß¾òòûï€âé„‹õ³v³c^/:¦Ì&:æ¤98Ñ÷	‹n¡f#5A?ùæsú ©È·çQ­Ø7Ss¹&B%ÚŠ3í>÷Ç?ıøË–gKŞå²Î>±å‰#ôĞÈ÷ßÇÚÿšx?ñ›Ä¿t6ÎÜ6+±H©x¤åú»_yY}ãW¿tæıT­J>Ö;º“şdQB`“(%t©[Œ¤ô(šä›]b4ÕÍ3î2½œhƒ‡<— ';+Sa°»lºThI˜”ùo6-rÖ-Š¹öÑ¡|KÅc¬=çk¹ëïû6k~­ı6aeÏø¨4ÀÚQŠò *‘¨ÛB‰¤iiúbpYúsf–{ı©"0{ÉÌ*W*Z3Ëi•ù-“ú’p:\®Â+¨4ğÁkı]~>~hpçƒ›Xõö³OµÔÔ­µÿæûzz¶ıÇK<xªÛWÔ¯«-]Ñ·îà½3=¦—.U†Îôµõ;ÕñQú„Üˆ"ƒWÚee„@˜É¤2¡”m4Š¨…ôÓQoÏËÉ¶*("E›ËïMß$âÔªæÏ¯tzœ»ÃEí³®qOï™{í¡5Ç¾ê$‹/l°eŞš“å‘[éPÛâ·İÜÓ-ì)UÜl	<˜,™šÇ$²Td“ìY&‹&?=ğL™bŸ"®¯äó‰»Ö"i¤²Àe6‘ù“8Âüg§”fZ2¼î}'ñ“',*µX³J]¯œuù­VeVÑÃ'Ş¤t_Ûıåå¬;ÀšÇ¯}bAÅcôæ±Û›\PñÔzºş“Ó 8t•cM¤!ªª-§akkáÊªµ>ÏÍK£±nuhM„So<ùŒm“Ûãáˆr„µúa„c¡ ':WcİNuÍ£y\ÒÕÎÉáD(ÌÂj,2¨#2¼R˜Óğê]*ÏÖ8‡ãœµî¦”†c!îéšæÒa›“„¦©œ†µĞp)ÇBGk¤+:ì"ÔÜé\òsg8"öã®p8p«*±•3ßÚáR’nèhàJCÄÃ%otåºˆGó¸‡"*omxx0êVyàj¢QÕH¢ãâŞò¤F*Ÿ#ôsòÅÖˆÚ­ÅUÙ‰¹U®
+]¦àªWsÇ¢Ñ¨›S/Ïwp¬Œp´°‡g‡İ-ü
+Á]Ñ?‡8-cS4ÚrâFSDÕNî
+k¡h€ËºÚ ræwªÜnp‹âV-äöx¢œÄ\1ÃÍ%¿ÚiX6…T¡îº“æ‹_kèàr™GåÖ°:¤qâ7æÈ^Î|m‘X«;¾2Ñ¢¨Êƒ«"œøİ".)SÜ¢óŒ°4™f«Î3´¦rh¡8§›º9éà$Æ-e¡«ÂZ[¸ã4Ã&U¬Àƒ±¨€ÄêMk3õáÂ¡2ÏDádéRvrâ×8ÂœycjÃI5ƒ·HWİ<80.yµx}r‹œËLç%­19x©I6İth$'RCkÄãÖ<Ñ2O€çê¥¼3^ày:'1Uå¹á%b•çj¡(Ï£••ç™ù²ë*Ï3ƒ¢fèÒâÜ©C1•ÛµàùzËêˆÁ:ë£%<§KÛàzK[¤eURèöDKx)wèòÃk"F~~˜“xˆÛıâÈqê¹â'zCœ¸4•KŞÖˆ!ÂÇ™744¤ŠmóÊ<'ñ4ïNêÅê5%Qnâyá¦§&ë2)4€­“0Ç¢aBˆ™-§´au„çk!µÛ´ÏÑxf,¤Æ-*"°£ ¡PHDÀ¡…8‰«Ÿô»‹£îÒ8ı^¨DĞ"İ ‚NÑIĞ©ºÁuë†,è4İP®A¯Ğ« 3t#CP¿®¥ãÏ•XËêˆ¦–s²^œ– ×')]Ê’ÊÀ$¥oBÙ—Tª:x®ÿ²~r&éªğs²İ€êğbİ ‚jºA-ÑIP¯n0A}º!:S7AKuÃ"è,İ°
+Z¦‚–ëjY°³u5Æ‹bjXã$6SJb¼\ÔìÏöóÙe>WWÕ&õ2ÙÔâ5šhìŸ‹pï+Ò)6lJƒ¨8>·Ì‰³!2'jzY9)<—ÃÌÓÕ*Óò*)LÃÅ{râ¿¤-B×·ÍÎÕ/ÒjŒyÄ)|­ÖÕ:µé2ös„ã5>_//¬ğš¿å$ÜQàtƒÂåUËÕ&Ñ8õ^=4Ô¤5iq5²É-º®®!Äé(ğ…:‡‹j!Î¼œyM˜‘Ï
+û»†Ê5U­ª	ğÚajyr=®h¡4Zå1ÑS‚m‘¦Êª{„ùä©Ñè´™auH3gh1®„?{\c¢Û%o%uj\Ç;[#œ…ãn.‡c¢Ó}vN\SUÎ|Zc¼Æ­ñÌp£¸±2Ãæ.1õR›hÉª„c"²7Îå‹VåÌ'Œğ
+#$o¬3ÕIÏïğºt,TUå²/­®&À¯œPñLSß¨5‰MEM„P8“Œ4ÇêH¹Z§yÌû6%T…]©TpÅËeïÕ“¿]’I¼Tµ§²¥‰’¿j’%átºbâç³.§SÔ5µ\D±‘†#­î•ÑˆZ-7æ‡?À_ ]én½@ºäÜÏ›ÖùBÿçmX¯óZÿªÖ‰ª¹<”+ár>Çà¦Ë¢>}ÉÈÇy¶Jº.
+TSëÔr­&µ~£nd2o(=å–tÓÿWŸD«ÓjÜIõâ‰¦ìlÒ,ô§£Ò¬¨õ{´T\RŞL„àjÃ™<öÃ'¼ œW—ø’ËÈ[tÄQÀç—øR/(ğe"ŠšZ®6iñt´–ë¢ ù2€¯Ğ‡F€·êÃ ‚iÓ‡‰)Y©S²J`šü¾Z`³F`sÀæZ}@Øà}D|:ù<ª¤l­>B’²uG×.p&·^àLnƒÀ™ÜF±gƒ?ÀcbOÁÄÅ‚Ù$öL‡À4û¼S`Ó%0‚éÁô˜vÕû¼×´Kp›M»wi—à®7íÜÓ.Ám5íÜ6Ó.Ám×ÔM$p‡9âA€ßdû¼Oİ…üŞ¯$…H²s£‰!)ÌMº+'VİiÌ»’¬˜±;É
+øİ )ÀÍIV nI²°W7°hb½}æÈ„)É
+ø`’ğ[uƒ¤ ·%Yør’€ıº«&Ö;`LøíIVÀïH²~§nà®$+ CIV êÃYæ—-WÜÃŒJÍãöD£!?·vq©¤uWú²ü/´F
+endstream
+endobj
+220 0 obj
+<</Type /FontDescriptor
+/FontName /AAAAAA+OpenSans-Regular
+/Flags 4
+/Ascent 1068.84766
+/Descent -292.96875
+/StemV 45.898438
+/CapHeight -713.86719
+/ItalicAngle 0
+/FontBBox [-548.82813 -271.97266 1201.17188 1047.85156]
+/FontFile2 219 0 R>>
+endobj
+221 0 obj
+<</Type /Font
+/FontDescriptor 220 0 R
+/BaseFont /AAAAAA+OpenSans-Regular
+/Subtype /CIDFontType2
+/CIDToGIDMap /Identity
+/CIDSystemInfo <</Registry (Adobe)
+/Ordering (Identity)
+/Supplement 0>>
+/W [0 [600.09766 0 0 259.76563] 17 [262.69531 366.69922] 29 [262.69531] 42 [727.05078] 68 [555.66406 0 0 611.81641 561.52344 0 0 613.28125 252.44141 0 525.39063 0 925.78125 613.28125 601.5625 611.81641 0 408.69141 476.5625 356.44531 0 0 774.90234]]
+/DW 0>>
+endobj
+222 0 obj
+<</Filter /FlateDecode
+/Length 307>> stream
+xœ]‘Mnƒ0…÷>…—É"²!²@H	‰ETš{ –Š±Œ³àö3i*uÒ÷<óŞhF”MÕX¸x÷“j!ğŞXíaî^¿Á`,‹b®
+Â¿;ÇDÙTí2ÛO,Ï90˜9ø…oNzºÁ–‰7¯Á;ğÍµl·L´wç¾a¸dEÁ5ôL”/{íFàÛvLXv×²ı«ø\ğ9¢iÔ¤avßÙX.¥”Ïëº®Vÿ{?P×­W_Çê}Ás)cY¬UHûR|BJ2¤$A:DD¢3RJ•Y†™÷ô7ë9ZaYSæ…œ2J9’aBâ™Ä’Ä#¥H¤”F>T$¦$’K?& Ìuë¡ÛUwïÁ¼&ntİ¥±ğ<¸›ÜÚµ~?ô šä
+endstream
+endobj
+7 0 obj
+<</Type /Font
+/Subtype /Type0
+/BaseFont /AAAAAA+OpenSans-Regular
+/Encoding /Identity-H
+/DescendantFonts [221 0 R]
+/ToUnicode 222 0 R>>
+endobj
+xref
+0 223
+0000000000 65535 f 
+0000000015 00000 n 
+0000021267 00000 n 
+0000000155 00000 n 
+0000048799 00000 n 
+0000055194 00000 n 
+0000000192 00000 n 
+0000061605 00000 n 
+0000000268 00000 n 
+0000000431 00000 n 
+0000021543 00000 n 
+0000005628 00000 n 
+0000005792 00000 n 
+0000021822 00000 n 
+0000010556 00000 n 
+0000010720 00000 n 
+0000022091 00000 n 
+0000015220 00000 n 
+0000015384 00000 n 
+0000022360 00000 n 
+0000019675 00000 n 
+0000019839 00000 n 
+0000022629 00000 n 
+0000037184 00000 n 
+0000036078 00000 n 
+0000022790 00000 n 
+0000022713 00000 n 
+0000022931 00000 n 
+0000022854 00000 n 
+0000024882 00000 n 
+0000023073 00000 n 
+0000022996 00000 n 
+0000023721 00000 n 
+0000023138 00000 n 
+0000023641 00000 n 
+0000023292 00000 n 
+0000023215 00000 n 
+0000023434 00000 n 
+0000023357 00000 n 
+0000023576 00000 n 
+0000023499 00000 n 
+0000024379 00000 n 
+0000023795 00000 n 
+0000024299 00000 n 
+0000023949 00000 n 
+0000023872 00000 n 
+0000024091 00000 n 
+0000024014 00000 n 
+0000024234 00000 n 
+0000024156 00000 n 
+0000024531 00000 n 
+0000024453 00000 n 
+0000024674 00000 n 
+0000024596 00000 n 
+0000024817 00000 n 
+0000024739 00000 n 
+0000025061 00000 n 
+0000024983 00000 n 
+0000025697 00000 n 
+0000025203 00000 n 
+0000025125 00000 n 
+0000025346 00000 n 
+0000025268 00000 n 
+0000025489 00000 n 
+0000025411 00000 n 
+0000025632 00000 n 
+0000025554 00000 n 
+0000025862 00000 n 
+0000025784 00000 n 
+0000026498 00000 n 
+0000026004 00000 n 
+0000025926 00000 n 
+0000026147 00000 n 
+0000026069 00000 n 
+0000026290 00000 n 
+0000026212 00000 n 
+0000026433 00000 n 
+0000026355 00000 n 
+0000026663 00000 n 
+0000026585 00000 n 
+0000027013 00000 n 
+0000026805 00000 n 
+0000026727 00000 n 
+0000026948 00000 n 
+0000026870 00000 n 
+0000027164 00000 n 
+0000027086 00000 n 
+0000027514 00000 n 
+0000027306 00000 n 
+0000027228 00000 n 
+0000027449 00000 n 
+0000027371 00000 n 
+0000027665 00000 n 
+0000027587 00000 n 
+0000028164 00000 n 
+0000027809 00000 n 
+0000027730 00000 n 
+0000027953 00000 n 
+0000027874 00000 n 
+0000028098 00000 n 
+0000028018 00000 n 
+0000028325 00000 n 
+0000028244 00000 n 
+0000029964 00000 n 
+0000028473 00000 n 
+0000028392 00000 n 
+0000028622 00000 n 
+0000028541 00000 n 
+0000029146 00000 n 
+0000028690 00000 n 
+0000029069 00000 n 
+0000028852 00000 n 
+0000028771 00000 n 
+0000029001 00000 n 
+0000028920 00000 n 
+0000029304 00000 n 
+0000029224 00000 n 
+0000029452 00000 n 
+0000029372 00000 n 
+0000029600 00000 n 
+0000029520 00000 n 
+0000029748 00000 n 
+0000029668 00000 n 
+0000029896 00000 n 
+0000029816 00000 n 
+0000030168 00000 n 
+0000030088 00000 n 
+0000030976 00000 n 
+0000030315 00000 n 
+0000030235 00000 n 
+0000030463 00000 n 
+0000030383 00000 n 
+0000030611 00000 n 
+0000030531 00000 n 
+0000030759 00000 n 
+0000030679 00000 n 
+0000030908 00000 n 
+0000030827 00000 n 
+0000031157 00000 n 
+0000031076 00000 n 
+0000032118 00000 n 
+0000031305 00000 n 
+0000031224 00000 n 
+0000031454 00000 n 
+0000031373 00000 n 
+0000031603 00000 n 
+0000031522 00000 n 
+0000031752 00000 n 
+0000031671 00000 n 
+0000031901 00000 n 
+0000031820 00000 n 
+0000032050 00000 n 
+0000031969 00000 n 
+0000032307 00000 n 
+0000032226 00000 n 
+0000032670 00000 n 
+0000032454 00000 n 
+0000032374 00000 n 
+0000032602 00000 n 
+0000032522 00000 n 
+0000032826 00000 n 
+0000032746 00000 n 
+0000033485 00000 n 
+0000032973 00000 n 
+0000032893 00000 n 
+0000033121 00000 n 
+0000033041 00000 n 
+0000033269 00000 n 
+0000033189 00000 n 
+0000033417 00000 n 
+0000033337 00000 n 
+0000033657 00000 n 
+0000033577 00000 n 
+0000034467 00000 n 
+0000033804 00000 n 
+0000033724 00000 n 
+0000033952 00000 n 
+0000033872 00000 n 
+0000034101 00000 n 
+0000034020 00000 n 
+0000034250 00000 n 
+0000034169 00000 n 
+0000034399 00000 n 
+0000034318 00000 n 
+0000034648 00000 n 
+0000034567 00000 n 
+0000035311 00000 n 
+0000034796 00000 n 
+0000034715 00000 n 
+0000034945 00000 n 
+0000034864 00000 n 
+0000035094 00000 n 
+0000035013 00000 n 
+0000035243 00000 n 
+0000035162 00000 n 
+0000035483 00000 n 
+0000035403 00000 n 
+0000035994 00000 n 
+0000035630 00000 n 
+0000035550 00000 n 
+0000035778 00000 n 
+0000035698 00000 n 
+0000035926 00000 n 
+0000035846 00000 n 
+0000036377 00000 n 
+0000036543 00000 n 
+0000036702 00000 n 
+0000036873 00000 n 
+0000037036 00000 n 
+0000037087 00000 n 
+0000037277 00000 n 
+0000037407 00000 n 
+0000047282 00000 n 
+0000047537 00000 n 
+0000048411 00000 n 
+0000048949 00000 n 
+0000054090 00000 n 
+0000054342 00000 n 
+0000054841 00000 n 
+0000055341 00000 n 
+0000060506 00000 n 
+0000060761 00000 n 
+0000061226 00000 n 
+trailer
+<</Size 223
+/Root 210 0 R
+/Info 1 0 R>>
+startxref
+61755
+%%EOF
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\promptTemplates\leavePolicy.st 
+------------------------------- 
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\promptTemplates\system-fallback.st 
+------------------------------- 
+You are an HR assistant for INTECH INDIA.
+
+The system encountered an internal issue while processing
+the request.
+
+Politely inform the user that you are unable to process
+their request at the moment and ask them to try again later.
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\promptTemplates\system-greeting.st 
+------------------------------- 
+You are an HR assistant for INTECH INDIA.
+
+The user is greeting you.
+
+Respond politely and professionally.
+Ask how you can help with HR-related queries such as:
+- leave policies
+- attendance
+- holidays
+- employee benefits
+
+Keep the response short and friendly..
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\promptTemplates\system-no-docs.st 
+------------------------------- 
+You are an HR assistant for INTECH INDIA.
+
+The user asked a question related to HR, but the required
+information is NOT available in the HR policy documents.
+
+You MUST reply exactly with:
+
+"Iâ€™m sorry, this information is not available as per the HR Leave Policy."
+
+Do not explain.
+Do not add any extra text.
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\promptTemplates\system-with-docs.st 
+------------------------------- 
+You are an HR assistant for INTECH INDIA.
+
+You MUST answer strictly based on the HR Leave Policy
+provided in the DOCUMENTS section.
+
+If the answer is NOT explicitly present in the DOCUMENTS,
+you MUST reply exactly with:
+
+"Iâ€™m sorry, this information is not available as per the HR Leave Policy."
+
+Do not explain.
+Do not add examples.
+Do not use outside knowledge.
+
+DOCUMENTS:
+----------
+{documents}
+----------
+.
+=============================== 
+File: C:\Users\273273\Desktop\project\Fullstack\AskHr\backend\AskHr\src\main\resources\promptTemplates\systemPrompt.st 
+------------------------------- 
+You are an HR assistant for INTECH INDIA.
+
+You MUST answer questions strictly based on the HR Leave Policy provided
+in the DOCUMENTS section.
+
+If the question is NOT related to HR leave policies
+or the answer is NOT present in the DOCUMENTS section,
+you MUST reply exactly with:
+
+"Iâ€™m sorry, this information is not available as per the HR Leave Policy."
+
+Do not explain.
+Do not provide general knowledge.
+Do not be helpful outside HR scope.
+
+DOCUMENTS:
+----------
+{documents}
+----------
+.

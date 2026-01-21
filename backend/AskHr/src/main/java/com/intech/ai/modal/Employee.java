@@ -24,7 +24,6 @@ public class Employee {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Business ID (EMP101)
     @Column(name = "employee_id", nullable = false, unique = true)
     private String employeeId;
 

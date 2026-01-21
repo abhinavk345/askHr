@@ -174,7 +174,7 @@ function AskAI({ user }) {
 
     try {
       const res = await fetch(
-        `http://localhost:9091/askhr/api/v1/chat?message=${encodeURIComponent(userText)}`,
+        `http://localhost:9091/askhr/api/v1/search/chat?message=${encodeURIComponent(userText)}`,
         {
           method: "GET",
           signal: controller.signal,

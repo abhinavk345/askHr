@@ -3,7 +3,6 @@ package com.intech.ai.controller;
 import com.intech.ai.utility.HRUtility;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -16,13 +15,24 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Slf4j
+@CrossOrigin(origins = "http://localhost:3000")
 @RestController
 @RequestMapping("/api/v1")
-@CrossOrigin(origins = "http://localhost:3000")
 public class OllamaController {
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
+
+    public OllamaController(ChatClient.Builder chatClientBuilder,
+                            VectorStore vectorStore) {
+
+        this.vectorStore = vectorStore;
+
+        // ✅ NO CHAT MEMORY (avoids slow prompt growth)
+        this.chatClient = chatClientBuilder.build();
+    }
+
+    /* ================= PROMPTS ================= */
 
     @Value("classpath:/promptTemplates/system-greeting.st")
     private Resource greetingPrompt;
@@ -36,10 +46,7 @@ public class OllamaController {
     @Value("classpath:/promptTemplates/system-fallback.st")
     private Resource fallbackPrompt;
 
-    public OllamaController(ChatClient chatClient, VectorStore vectorStore) {
-        this.chatClient = chatClient;
-        this.vectorStore = vectorStore;
-    }
+    /* ================= SEARCH CHAT ================= */
 
     @GetMapping("/search/chat")
     public Flux<String> searchChat(
@@ -49,15 +56,16 @@ public class OllamaController {
         log.info("Search chat request: {}", message);
 
         try {
-            // 1️⃣ Greeting → static LLM call (no vector)
+            // ⚡ 1️⃣ GREETING BYPASS (NO LLM CALL)
             if (HRUtility.isGreeting(message)) {
-                Flux<String> stringFlux = executePrompt(greetingPrompt, null, emailId, message);
-                return stringFlux;
+                return Flux.just(
+                        "Hello! 👋 How can I help you with HR-related queries today?"
+                );
             }
 
-            // 2️⃣ Not HR related
+            // 2️⃣ Non-HR question
             if (!HRUtility.isHRMessage(message)) {
-                return executePrompt(noDocsPrompt, null, emailId, message);
+                return executePrompt(noDocsPrompt, null, message);
             }
 
             // 3️⃣ Vector search
@@ -70,7 +78,7 @@ public class OllamaController {
             );
 
             if (docs.isEmpty()) {
-                return executePrompt(noDocsPrompt, null, emailId, message);
+                return executePrompt(noDocsPrompt, null, message);
             }
 
             // 4️⃣ Docs found
@@ -78,19 +86,17 @@ public class OllamaController {
                     .map(Document::getText)
                     .collect(Collectors.joining("\n\n"));
 
-            return executePrompt(withDocsPrompt, context, emailId, message);
+            return executePrompt(withDocsPrompt, context, message);
 
         } catch (Exception ex) {
             log.error("Chat processing failed", ex);
-            return executePrompt(fallbackPrompt, null, emailId, message);
+            return executePrompt(fallbackPrompt, null, message);
         }
     }
 
-    // 🔧 SINGLE SAFE EXECUTION METHOD
     private Flux<String> executePrompt(
             Resource systemPrompt,
             String documents,
-            String emailId,
             String userMessage) {
 
         var prompt = chatClient.prompt()
@@ -101,10 +107,6 @@ public class OllamaController {
                     }
                 })
                 .user(userMessage);
-
-        if (emailId != null && !emailId.isBlank()) {
-            prompt.advisors(a -> a.param(ChatMemory.CONVERSATION_ID, emailId));
-        }
 
         return prompt.stream().content();
     }

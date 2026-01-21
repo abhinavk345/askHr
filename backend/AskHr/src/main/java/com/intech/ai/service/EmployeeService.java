@@ -1,9 +1,13 @@
 package com.intech.ai.service;
 
 import com.intech.ai.modal.Employee;
+import com.intech.ai.modal.EmployeeAuth;
+import com.intech.ai.repository.EmployeeAuthRepository;
 import com.intech.ai.repository.EmployeeRepository;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
 
 
 @Service
@@ -11,11 +15,14 @@ public class EmployeeService {
 
     private final JdbcChatMemoryRepository chatMemoryRepository;
     private final EmployeeRepository employeeRepository;
+    private final EmployeeAuthRepository employeeAuthRepository;
 
     public EmployeeService(JdbcChatMemoryRepository chatMemoryRepository,
-                           EmployeeRepository employeeRepository) {
+                           EmployeeRepository employeeRepository,
+                           EmployeeAuthRepository employeeAuthRepository) {
         this.chatMemoryRepository = chatMemoryRepository;
         this.employeeRepository = employeeRepository;
+        this.employeeAuthRepository = employeeAuthRepository;
     }
 
     /* ================= Employee Profile ================= */
@@ -36,21 +43,34 @@ public class EmployeeService {
                 .orElse("Not Assigned");
     }
 
-    public boolean validateCredentials(String employeeId, String password) {
-//        return employeeRepository.findByEmployeeId(employeeId)
-//                .map(employee -> {
-//                    // If using NoOpPasswordEncoder (plain text)
-//                   // return employee.getPassword().equals(password);
-//                    return employee.getPassword().equals(password);
-//
-//                    // If using BCrypt:
-//                    // return passwordEncoder.matches(password, employee.getPassword());
-//                })
-//                .orElse(false);
-        return true;
-    }
 
     public void clearChatMemory(String employeeId) {
         chatMemoryRepository.deleteByConversationId(employeeId);
+    }
+
+    public Employee validateLogin(String employeeId, String password) {
+
+        Optional<EmployeeAuth> authOpt =
+                employeeAuthRepository.findByEmployeeId(employeeId);
+
+        if (authOpt.isEmpty()) {
+            return null;
+        }
+
+        EmployeeAuth auth = authOpt.get();
+
+        // check account enabled
+        if (!auth.isEnabled()) {
+            return null;
+        }
+
+        // plain password comparison (NOT secure)
+        if (!password.equals(auth.getPassword())) {
+            return null;
+        }
+
+        return employeeRepository
+                .findByEmployeeId(employeeId)
+                .orElse(null);
     }
 }
