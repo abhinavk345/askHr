@@ -17,6 +17,11 @@ public class HRUtility {
             "(?i)^(hi|hello|hey|good morning|good afternoon|good evening).*$"
     );
 
+    private static final Pattern POLITE_PATTERN = Pattern.compile(
+            "(?i)^\\s*(nice to meet you|meet again|thanks|thank you|bye|goodbye|see you|take care|have a nice day|have a good day|see you later|cheers)\\s*.*$"
+    );
+
+
     // HR intent detection
     private static final Pattern HR_PATTERN = Pattern.compile(
             "(?i).*(" +
@@ -37,6 +42,9 @@ public class HRUtility {
         return HR_PATTERN.matcher(message).matches();
     }
 
+    public static boolean isPoliteMessage(String message) {
+        return POLITE_PATTERN.matcher(message.trim()).matches();
+    }
 
     public static String joinDocuments(List<Document> docs) {
         return docs.stream()

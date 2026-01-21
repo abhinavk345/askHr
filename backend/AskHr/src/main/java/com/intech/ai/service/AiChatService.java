@@ -3,6 +3,7 @@ package com.intech.ai.service;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -23,5 +24,9 @@ public class AiChatService {
                         .user(prompt)
                         .call()
                         .content());
+    }
+
+    public Flux<String> askStream(String prompt) {
+        return chatClient.prompt().user(prompt).stream().content();
     }
 }

@@ -1,6 +1,8 @@
 package com.intech.ai.controller;
 
+import com.intech.ai.service.QueryService;
 import com.intech.ai.utility.HRUtility;
+import com.intech.ai.utility.IntentDetector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
@@ -22,14 +24,16 @@ public class OllamaController {
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
+    private final QueryService queryService;
 
     public OllamaController(ChatClient.Builder chatClientBuilder,
-                            VectorStore vectorStore) {
+                            VectorStore vectorStore, QueryService queryService) {
 
         this.vectorStore = vectorStore;
 
         // ✅ NO CHAT MEMORY (avoids slow prompt growth)
         this.chatClient = chatClientBuilder.build();
+        this.queryService = queryService;
     }
 
     /* ================= PROMPTS ================= */
@@ -52,62 +56,36 @@ public class OllamaController {
     public Flux<String> searchChat(
             @RequestHeader(value = "emailId", required = false) String emailId,
             @RequestParam String message) {
-
         log.info("Search chat request: {}", message);
-
-        try {
-            // ⚡ 1️⃣ GREETING BYPASS (NO LLM CALL)
-            if (HRUtility.isGreeting(message)) {
-                return Flux.just(
-                        "Hello! 👋 How can I help you with HR-related queries today?"
-                );
-            }
-
-            // 2️⃣ Non-HR question
-            if (!HRUtility.isHRMessage(message)) {
-                return executePrompt(noDocsPrompt, null, message);
-            }
-
-            // 3️⃣ Vector search
-            List<Document> docs = vectorStore.similaritySearch(
-                    SearchRequest.builder()
-                            .query(message)
-                            .topK(5)
-                            .similarityThreshold(0.6)
-                            .build()
-            );
-
-            if (docs.isEmpty()) {
-                return executePrompt(noDocsPrompt, null, message);
-            }
-
-            // 4️⃣ Docs found
-            String context = docs.stream()
-                    .map(Document::getText)
-                    .collect(Collectors.joining("\n\n"));
-
-            return executePrompt(withDocsPrompt, context, message);
-
-        } catch (Exception ex) {
-            log.error("Chat processing failed", ex);
-            return executePrompt(fallbackPrompt, null, message);
+        String lowerMessage = message.toLowerCase().trim();
+        // 1️⃣ GREETING BYPASS
+        if (HRUtility.isGreeting(message)) {
+            return Flux.just("Hello! 👋 How can I help you with HR-related queries today?");
         }
-    }
-
-    private Flux<String> executePrompt(
-            Resource systemPrompt,
-            String documents,
-            String userMessage) {
-
-        var prompt = chatClient.prompt()
-                .system(ps -> {
-                    ps.text(systemPrompt);
-                    if (documents != null) {
-                        ps.param("documents", documents);
-                    }
-                })
-                .user(userMessage);
-
-        return prompt.stream().content();
+        // 2️⃣ Leave / Ticket Requests
+        if (IntentDetector.isLeaveOrTicketRequest(message)) {
+            return Flux.just("You can apply for leave or raise a ticket via the portal. ✅");
+        }
+        // 3️⃣ Courtesy / Polite Messages
+        if (HRUtility.isPoliteMessage(message)) {
+            if (lowerMessage.contains("thanks")) {
+                return Flux.just("You're welcome! 😊");
+            } else if (lowerMessage.contains("nice to meet you") || lowerMessage.contains("meet again")) {
+                return Flux.just("Hello! Nice to meet you 😊");
+            }else if (lowerMessage.contains("how are you ") || lowerMessage.contains("How are you?")) {
+                return Flux.just("Hello! I am fine ,what about you. Thanks for asking.\n Tell me what can i do for you? 😊");
+            } else if (lowerMessage.contains("bye") || lowerMessage.contains("take care") || lowerMessage.contains("goodbye")) {
+                return Flux.just("Take care! 👋");
+            } else {
+                return Flux.just("Glad to assist you!");
+            }
+        }
+        // 4️⃣ HR Policy / Unknown Messages
+        if (HRUtility.isHRMessage(message)) {
+            // delegate to policy query service (possibly async / database / embeddings)
+            return queryService.handlePolicyQuery(message, emailId);
+        }
+        // 5️⃣ Fallback for everything else
+        return Flux.just("I’m sorry, this information is not available as per the HR Leave Policy.");
     }
 }
