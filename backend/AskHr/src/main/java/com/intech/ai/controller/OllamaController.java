@@ -109,7 +109,10 @@ public class OllamaController {
                 // Example: fetch from DB or cached data
                 return Flux.just("You currently have 12 days of leave available. 🌿");
             } else if (lowerMessage.contains("apply") || lowerMessage.contains("raise ticket")) {
-                return Flux.just("You can apply for leave or raise a ticket via the portal. ✅");
+                return Flux.just(
+                        "You can apply for leave or raise a ticket via the HR portal: 🌐 [Click Here](https://ion.ics-global.in/odoo/time-off)"
+                );
+
             } else if (lowerMessage.contains("policy") || lowerMessage.contains("explain")) {
                 return Flux.just("As per HR Leave Policy: You can apply for casual, sick, or earned leave. Please check the portal for details.");
             } else {
