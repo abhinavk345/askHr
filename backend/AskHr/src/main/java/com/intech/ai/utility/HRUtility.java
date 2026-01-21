@@ -18,7 +18,7 @@ public class HRUtility {
     );
 
     private static final Pattern POLITE_PATTERN = Pattern.compile(
-            "(?i)^\\s*(nice to meet you|meet again|thanks|thank you|bye|goodbye|see you|take care|have a nice day|have a good day|see you later|cheers)\\s*.*$"
+            "(?i)^\\s*(nice to meet you|meet again|how are you|thanks|thank you|bye|goodbye|see you|take care|have a nice day|have a good day|see you later|cheers)\\s*.*$"
     );
 
 

@@ -72,7 +72,7 @@ public class OllamaController {
                 return Flux.just("You're welcome! 😊");
             } else if (lowerMessage.contains("nice to meet you") || lowerMessage.contains("meet again")) {
                 return Flux.just("Hello! Nice to meet you 😊");
-            }else if (lowerMessage.contains("how are you ") || lowerMessage.contains("How are you?")) {
+            }else if (lowerMessage.contains("how are you") || lowerMessage.contains("How are you?")) {
                 return Flux.just("Hello! I am fine ,what about you. Thanks for asking.\n Tell me what can i do for you? 😊");
             } else if (lowerMessage.contains("bye") || lowerMessage.contains("take care") || lowerMessage.contains("goodbye")) {
                 return Flux.just("Take care! 👋");
