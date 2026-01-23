@@ -4,17 +4,8 @@ import com.intech.ai.service.QueryService;
 import com.intech.ai.utility.HRUtility;
 import com.intech.ai.utility.IntentDetector;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Slf4j
 @CrossOrigin(origins = "http://localhost:3000")
@@ -22,72 +13,11 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/v1")
 public class OllamaController {
 
-    private final ChatClient chatClient;
-    private final VectorStore vectorStore;
     private final QueryService queryService;
 
-    public OllamaController(ChatClient.Builder chatClientBuilder,
-                            VectorStore vectorStore, QueryService queryService) {
-
-        this.vectorStore = vectorStore;
-
-        // ✅ NO CHAT MEMORY (avoids slow prompt growth)
-        this.chatClient = chatClientBuilder.build();
+    public OllamaController(QueryService queryService) {
         this.queryService = queryService;
     }
-
-    /* ================= PROMPTS ================= */
-
-    @Value("classpath:/promptTemplates/system-greeting.st")
-    private Resource greetingPrompt;
-
-    @Value("classpath:/promptTemplates/system-no-docs.st")
-    private Resource noDocsPrompt;
-
-    @Value("classpath:/promptTemplates/system-with-docs.st")
-    private Resource withDocsPrompt;
-
-    @Value("classpath:/promptTemplates/system-fallback.st")
-    private Resource fallbackPrompt;
-
-    /* ================= SEARCH CHAT ================= */
-
-//    @GetMapping("/search/chat")
-//    public Flux<String> searchChat(
-//            @RequestHeader(value = "emailId", required = false) String emailId,
-//            @RequestParam String message) {
-//        log.info("Search chat request: {}", message);
-//        String lowerMessage = message.toLowerCase().trim();
-//        // 1️⃣ GREETING BYPASS
-//        if (HRUtility.isGreeting(message)) {
-//            return Flux.just("Hello! 👋 How can I help you with HR-related queries today?");
-//        }
-//        // 2️⃣ Leave / Ticket Requests
-//        if (IntentDetector.isLeaveOrTicketRequest(message)) {
-//            return Flux.just("You can apply for leave or raise a ticket via the portal. ✅");
-//        }
-//        // 3️⃣ Courtesy / Polite Messages
-//        if (HRUtility.isPoliteMessage(message)) {
-//            if (lowerMessage.contains("thanks")) {
-//                return Flux.just("You're welcome! 😊");
-//            } else if (lowerMessage.contains("nice to meet you") || lowerMessage.contains("meet again")) {
-//                return Flux.just("Hello! Nice to meet you 😊");
-//            }else if (lowerMessage.contains("how are you") || lowerMessage.contains("How are you?")) {
-//                return Flux.just("Hello! I am fine ,what about you. Thanks for asking.\n Tell me what can i do for you? 😊");
-//            } else if (lowerMessage.contains("bye") || lowerMessage.contains("take care") || lowerMessage.contains("goodbye")) {
-//                return Flux.just("Take care! 👋");
-//            } else {
-//                return Flux.just("Glad to assist you!");
-//            }
-//        }
-//        // 4️⃣ HR Policy / Unknown Messages
-//        if (HRUtility.isHRMessage(message)) {
-//            // delegate to policy query service (possibly async / database / embeddings)
-//            return queryService.handlePolicyQuery(message, emailId);
-//        }
-//        // 5️⃣ Fallback for everything else
-//        return Flux.just("I’m sorry, this information is not available as per the HR Leave Policy.");
-//    }
 
     @GetMapping("/search/chat")
     public Flux<String> searchChat(
@@ -95,39 +25,21 @@ public class OllamaController {
             @RequestParam String message) {
 
         log.info("Search chat request: {}", message);
-
         String lowerMessage = message.toLowerCase().trim();
 
-        // 1️⃣ GREETING BYPASS
+        // 1️⃣ GREETINGS
         if (HRUtility.isGreeting(message)) {
             return Flux.just("Hello! 👋 How can I help you with HR-related queries today?");
         }
 
-        // 2️⃣ Leave / Ticket Requests - more intelligent responses
-        if (IntentDetector.isLeaveOrTicketRequest(message)) {
-            if (lowerMessage.contains("balance") || lowerMessage.contains("base leave")) {
-                // Example: fetch from DB or cached data
-                return Flux.just("You currently have 12 days of leave available. 🌿");
-            } else if (lowerMessage.contains("apply") || lowerMessage.contains("raise ticket")) {
-                return Flux.just(
-                        "You can apply for leave or raise a ticket via the HR portal: 🌐 [Click Here](https://ion.ics-global.in/odoo/time-off)"
-                );
-
-            } else if (lowerMessage.contains("policy") || lowerMessage.contains("explain")) {
-                return Flux.just("As per HR Leave Policy: You can apply for casual, sick, or earned leave. Please check the portal for details.");
-            } else {
-                return Flux.just("You can apply for leave, check balance, or view leave policies via the portal. ✅");
-            }
-        }
-
-        // 3️⃣ Courtesy / Polite Messages
+        // 2️⃣ POLITE MESSAGES
         if (HRUtility.isPoliteMessage(message)) {
             if (lowerMessage.contains("thanks")) {
                 return Flux.just("You're welcome! 😊");
             } else if (lowerMessage.contains("nice to meet you") || lowerMessage.contains("meet again")) {
                 return Flux.just("Hello! Nice to meet you 😊");
-            }else if (lowerMessage.contains("how are you") || lowerMessage.contains("How are you?")) {
-                return Flux.just("Hello! I am fine ,what about you. Thanks for asking.\n Tell me what can i do for you? 😊");
+            } else if (lowerMessage.contains("how are you")) {
+                return Flux.just("Hello! I am fine, what about you? Thanks for asking.\nTell me what I can do for you? 😊");
             } else if (lowerMessage.contains("bye") || lowerMessage.contains("take care") || lowerMessage.contains("goodbye")) {
                 return Flux.just("Take care! 👋");
             } else {
@@ -135,13 +47,26 @@ public class OllamaController {
             }
         }
 
-        // 4️⃣ HR Policy / Unknown Messages
-        if (HRUtility.isHRMessage(message)) {
-            return queryService.handlePolicyQuery(message, emailId);
+        // 3️⃣ LEAVE / TICKET REQUESTS
+        if (IntentDetector.isLeaveOrTicketRequest(message)) {
+            return handleLeaveOrTicket(lowerMessage);
         }
 
-        // 5️⃣ Fallback for everything else
-        return Flux.just("I’m sorry, this information is not available as per the HR Leave Policy.");
+        // 4️⃣ HR POLICY / OTHER QUERIES → delegate to QueryService + AI
+        return queryService.handlePolicyQuery(message, emailId);
     }
 
+    /* ================= PRIVATE HELPERS ================= */
+
+    private Flux<String> handleLeaveOrTicket(String lowerMessage) {
+
+        // Action-based → static
+        if (lowerMessage.contains("apply") || lowerMessage.contains("raise ticket")) {
+            return Flux.just(
+                    "You can apply for leave or raise a ticket via the HR portal: 🌐 https://ion.ics-global.in/odoo/time-off"
+            );
+        }
+
+        return queryService.handlePolicyQuery(lowerMessage, null);
+    }
 }

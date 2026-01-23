@@ -5,6 +5,7 @@ import Menu from "./Menu";
 // Import sound files
 import sendSound from "../sounds/send.mp3";
 import receiveSound from "../sounds/whatsappSend.mp3";
+import AudioButton from "../AudioToText/AudioButton";
 
 function AskAI({ user }) {
   /* ================== STATE ================== */
@@ -445,6 +446,7 @@ function AskAI({ user }) {
             onKeyDown={handleKeyDown}
             placeholder="How can I help you today?"
           />
+          <AudioButton onTranscribe={(text) => setMessage(text)} />
           <button
             className={loading ? "pause" : ""}
             onClick={() => {

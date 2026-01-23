@@ -27,6 +27,7 @@ public class AiChatService {
     }
 
     public Flux<String> askStream(String prompt) {
+        System.out.println("🔥 Calling Ollama with prompt: " + prompt);
         return chatClient.prompt().user(prompt).stream().content();
     }
 }

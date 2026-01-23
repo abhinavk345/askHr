@@ -26,10 +26,10 @@ public class EmployeeAuth {
     private Long id;
 
     // FK by business key (not DB id)
-    @Column(name = "employee_id", nullable = false, unique = true)
+    @Column(name = "employee_id", nullable = false)
     private String employeeId;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String username; // email or employeeId
 
     @JsonIgnore

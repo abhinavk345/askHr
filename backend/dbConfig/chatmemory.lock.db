@@ -1,6 +1,6 @@
 #FileLock
-#Wed Jan 21 17:54:04 IST 2026
-server=172.27.0.1\:64638
-hostName=ICAK273273NB.mshome.net
+#Fri Jan 23 16:18:03 IST 2026
+server=10.227.254.161\:50061
+hostName=host.docker.internal
 method=file
-id=19be0778ec368d9035023bb42e33f9196f548a93db4
+id=19bea77dedb307282644166b9857b8f7f8a28d87af0

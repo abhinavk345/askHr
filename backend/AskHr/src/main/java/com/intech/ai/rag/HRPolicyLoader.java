@@ -18,7 +18,7 @@ public class HrPolicyLoader {
 
     private final VectorStore vectorStore;
 
-    @Value("classpath:policy.pdf")
+    @Value("classpath:policy2.pdf")
     private Resource policyPdf;
 
 
@@ -38,7 +38,7 @@ public class HrPolicyLoader {
 
             TikaDocumentReader reader = new TikaDocumentReader(policyPdf);
             TokenTextSplitter splitter =
-                    new TokenTextSplitter(500, 50, 50, 50, true);
+                    new TokenTextSplitter(100, 50, 50, 50, true);
 
             List<Document> documents = reader.get();
             List<Document> splitDocs = splitter.apply(documents);

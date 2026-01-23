@@ -1,8 +1,8 @@
 package com.intech.ai.service;
 
-import com.intech.ai.utility.HRUtility;
 import com.intech.ai.utility.IntentDetector;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class QueryService {
@@ -24,50 +25,28 @@ public class QueryService {
 
     // Cache with TTL
     private final Map<String, CachedFlux> queryCache = new ConcurrentHashMap<>();
-    private final Duration ttl = Duration.ofMinutes(15); // e.g., cache expires after 15 minutes
+    private final Duration ttl = Duration.ofMinutes(15);
 
     /**
-     * Handles HR policy related queries with streaming support and optional caching.
+     * Main method for handling HR policy queries.
+     * Streams responses and caches results for repeated queries.
      */
-    public Flux<String> handlePolicyQuery(String message) {
-
-        // Fast bypass for non-policy messages
-        if (!IntentDetector.isPolicyQuery(message)) {
-            return Flux.just(
-                    "Hello! I can answer HR leave policy related questions. " +
-                            "Please ask about leave, holidays, or HR policies."
-            );
-        }
-
-        // Check cache
-        CachedFlux cached = queryCache.get(message);
-        if (cached != null && !cached.isExpired()) {
-            return cached.flux();
-        }
-
-        // Fetch new Flux and cache it
-        Flux<String> flux = fetchPolicyFlux(message);
-        queryCache.put(message, new CachedFlux(flux, Instant.now(), ttl));
-        return flux;
-    }
-
     public Flux<String> handlePolicyQuery(String message, String userId) {
+//        if (!IntentDetector.isPolicyQuery(message)) {
+//            return Flux.just(
+//                    "Hi! I specialize in HR leave policies and holidays. " +
+//                            "You can ask me things like 'Explain leave policy', 'What holidays are coming?', or 'How do I apply for leave?'."
+//            );
+//        }
 
-        // 1️⃣ Non-policy messages
-        if (!IntentDetector.isPolicyQuery(message)) {
-            return Flux.just(
-                    "Hi! I specialize in HR leave policies and holidays. " +
-                            "You can ask me things like 'Explain leave policy', 'What holidays are coming?', or 'How do I apply for leave?'."
-            );
-        }
+        String cacheKey = buildCacheKey(message, userId);
+        CachedFlux cached = queryCache.get(cacheKey);
 
-        // 2️⃣ Check cache
-        CachedFlux cached = queryCache.get(message);
         if (cached != null && !cached.isExpired()) {
-            return cached.flux();
+            log.info("Serving cached response for key: {}", cacheKey);
+            return cached.flux().delayElements(Duration.ofMillis(30));
         }
 
-        // 3️⃣ Fetch documents from vector store
         Flux<String> flux = Flux.defer(() -> {
             List<Document> documents = vectorStore.similaritySearch(message);
 
@@ -78,77 +57,46 @@ public class QueryService {
                 );
             }
 
-            // Combine context
             String context = documents.stream()
                     .map(Document::getText)
                     .collect(Collectors.joining("\n\n"));
 
-            String prompt = """
-            You are a friendly and helpful HR assistant.
-            Answer strictly using the HR policy context below.
-            Use bullet points if applicable.
-            If some information is missing, suggest alternative options.
-            
-            Context:
-            %s
-            
-            User question:
-            %s
-            """.formatted(context, message);
+            String prompt = buildPrompt(message, userId, context);
 
             return aiChatService.askStream(prompt)
-                    .map(s -> s.replaceAll("\\n+", "\n")) // clean extra newlines
-                    .startWith("Let me check that for you..."); // more human-like
-        }).cache();
+                    .map(s -> s.replaceAll("\\n+", "\n"))
+                    .startWith("Let me check that for you...");
 
-        // 4️⃣ Store in cache
-        queryCache.put(message, new CachedFlux(flux, Instant.now(), ttl));
+        }).cache(); // ensures multiple subscribers share the same Flux
+
+        queryCache.put(cacheKey, new CachedFlux(flux, Instant.now(), ttl));
         return flux;
     }
 
-    /**
-     * Internal method that does the actual vector search and AI call,
-     * returns a cached Flux for streaming.
-     */
-    private Flux<String> fetchPolicyFlux(String message) {
-        try {
-            List<Document> documents = vectorStore.similaritySearch(message);
+    /* ================= PRIVATE HELPERS ================= */
 
-            if (documents.isEmpty()) {
-                return Flux.just(
-                        "I’m sorry, this information is not available as per the HR Leave Policy."
-                );
-            }
+    private String buildPrompt(String message, String userId, String context) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("You are a friendly and helpful HR assistant.\n");
+        sb.append("Answer strictly using the HR policy context below.\n");
+        sb.append("Use bullet points if applicable.\n");
+        sb.append("If some information is missing, suggest alternative options.\n\n");
 
-            String context = documents.stream()
-                    .map(Document::getText)
-                    .collect(Collectors.joining("\n\n"));
-
-            String prompt = """
-                    You are an HR assistant.
-                    Answer strictly using the HR policy context below.
-                    If the answer is not present, say "I’m sorry, this information is not available as per the HR Leave Policy."
-
-                    Context:
-                    %s
-
-                    Question:
-                    %s
-                    """.formatted(context, message);
-
-            return aiChatService.askStream(prompt)
-                    .cache(); // ensures Flux is reusable for multiple subscribers
-
-        } catch (Exception ex) {
-            return Flux.just(
-                    "Sorry, I am unable to process your request at the moment. Please try again later."
-            );
+        if (userId != null && !userId.isBlank()) {
+            sb.append("User ID: ").append(userId).append("\n");
         }
+
+        sb.append("Context:\n").append(context).append("\n\n");
+        sb.append("User question:\n").append(message).append("\nAnswer:");
+        return sb.toString();
     }
 
-    /**
-     * Holder class for cached Flux with timestamp
-     */
+    private String buildCacheKey(String message, String userId) {
+        return message + "::" + (userId != null ? userId : "anon");
+    }
+
+    /* ================= CACHED FLUX HOLDER ================= */
+
     private static class CachedFlux {
         private final Flux<String> flux;
         private final Instant createdAt;
