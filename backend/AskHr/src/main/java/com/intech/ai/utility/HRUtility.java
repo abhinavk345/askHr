@@ -48,7 +48,7 @@ public class HRUtility {
 
     public static String joinDocuments(List<Document> docs) {
         return docs.stream()
-                .map(Document::getText)
+                .map(d -> d.getText().substring(0, Math.min(800, d.getText().length())))
                 .collect(Collectors.joining(System.lineSeparator()));
     }
 }

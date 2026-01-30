@@ -38,7 +38,7 @@ public class HrPolicyLoader {
 
             TikaDocumentReader reader = new TikaDocumentReader(policyPdf);
             TokenTextSplitter splitter =
-                    new TokenTextSplitter(100, 50, 50, 50, true);
+                    new TokenTextSplitter(30, 50, 50, 500, true);
 
             List<Document> documents = reader.get();
             List<Document> splitDocs = splitter.apply(documents);

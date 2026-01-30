@@ -2,11 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import "../askHrComponent/AskAI.css";
 import askLogo from "../images/askLogos.png";
 import Menu from "./Menu";
+import parse from 'html-react-parser';
+import DOMPurify from 'dompurify';
 // Import sound files
 import sendSound from "../sounds/send.mp3";
 import receiveSound from "../sounds/whatsappSend.mp3";
 import AudioButton from "../AudioToText/AudioButton";
-
+import SuggestionChips from "../Suggestions/SuggestionChips";
 function AskAI({ user }) {
   /* ================== STATE ================== */
   const [chatHistory, setChatHistory] = useState({});
@@ -29,6 +31,58 @@ function AskAI({ user }) {
   const dragThreshold = 5;
 
   const chatEndRef = useRef(null);
+
+  // ---------- suggestions List----------
+const [suggestions, setSuggestions] = useState([
+  "Leave policy",
+  "Salary slip",
+  "WFH policy",
+  "Holiday list",
+  "Insurance benefits",
+  "Attendance issue",
+]);
+
+  const CHIP_MAP = {
+  "Leave policy": ["Casual leave", "Sick leave", "Apply leave"],
+  "Salary slip": ["Download slip", "CTC breakup", "Tax deduction"],
+  "WFH policy": ["Hybrid policy", "Approval process", "WFH days"],
+  "Holiday list": ["Public holidays", "Optional holidays"],
+  "Insurance benefits": ["Health insurance", "Dependents coverage"],
+  "Attendance issue": ["Missed punch", "Regularization"],
+};
+  const suggestionList = [
+  "Leave policy",
+  "create",
+  "tomorrow",
+  "same",
+  "Insurance benefits",
+  "Attendance issue",
+];
+
+ 
+
+const handleChipSelect = (chipText) => {
+  // Append chip text to input
+  setMessage((prev) =>
+    prev.trim() ? `${prev} ${chipText}` : chipText
+  );
+
+  setSuggestions((prev) => {
+    // Remove clicked chip
+    const filtered = prev.filter((c) => c !== chipText);
+
+    // Get related chips
+    const related = CHIP_MAP[chipText] || [];
+
+    // Add new chips without duplicates
+    const merged = [...filtered, ...related].filter(
+      (chip, index, arr) => arr.indexOf(chip) === index
+    );
+
+    // Limit chip count (UI friendly)
+    return merged.slice(0, 6);
+  });
+};
 
   // ---------- LOGIN USER ----------
   const username = user?.name || "";
@@ -418,8 +472,8 @@ function AskAI({ user }) {
           key={i}
           className={`chat-bubble ${msg.role} ${msg.failed ? "retry" : ""}`}
           onClick={() => msg.failed && retryMessage(msg.originalMessage)}
-        >
-          {msg.text}
+        >{parse(DOMPurify.sanitize(msg.text))}
+          {/* {msg.text} */}
           <div className="timestamp">{msg.time}</div>
         </div>
       ))}
@@ -457,7 +511,10 @@ function AskAI({ user }) {
             {loading ? "Pause" : "Ask"}
           </button>
         </div>
-
+        <SuggestionChips
+          suggestions={suggestionList}
+          onSelect={handleChipSelect}
+      />
         <div className="footer-note">&copy; Developed by Abhinav Kumar @ 2026</div>
       </div>
     </div>

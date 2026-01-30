@@ -1,0 +1,46 @@
+.suggestion-chips {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid #e5e5e5;
+  background: #fafafa;
+  overflow-x: auto;
+}
+
+.suggestion-chips::-webkit-scrollbar {
+  height: 4px;
+}
+
+.suggestion-chips::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 10px;
+}
+
+ 
+ 
+
+.chip {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 16px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: 
+    transform 0.25s ease,
+    opacity 0.25s ease,
+    background 0.2s ease;
+}
+
+.chip:active {
+  transform: rotate(8deg) scale(0.9);
+  opacity: 0.6;
+}
+
+.chip:hover {
+  background: #eef2ff;
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
