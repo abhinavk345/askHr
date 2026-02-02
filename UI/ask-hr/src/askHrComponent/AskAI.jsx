@@ -33,67 +33,70 @@ function AskAI({ user }) {
   const chatEndRef = useRef(null);
 
   // ---------- suggestions List----------
-const [suggestions, setSuggestions] = useState([
-  "Leave policy",
-  "Salary slip",
-  "WFH policy",
-  "Holiday list",
-  "confirm",
-  "Attendance issue",
-]);
-
-  const CHIP_MAP = {
-  "Leave policy": ["Casual leave", "Sick leave", "Apply leave"],
-  "Salary slip": ["Download slip", "CTC breakup", "Tax deduction"],
-  "WFH policy": ["Hybrid policy", "Approval process", "WFH days"],
-  "Holiday list": ["Public holidays", "Optional holidays"],
-  "Insurance benefits": ["Health insurance", "Dependents coverage"],
-  "Attendance issue": ["Missed punch", "Regularization"],
-};
-  const suggestionList = [
-  "Leave policy",
-  "create",
-  "tomorrow",
-  "same",
-  "confirm",
-  "Attendance issue",
-];
+const [suggestions, setSuggestions] = useState(["leave policy","confirm"]);
+ //const [messages, setMessages] = useState("");
+//   const CHIP_MAP = {
+//   "Leave policy": ["Casual leave", "Sick leave", "Apply leave"],
+//   "Salary slip": ["Download slip", "CTC breakup", "Tax deduction"],
+//   "WFH policy": ["Hybrid policy", "Approval process", "WFH days"],
+//   "Holiday list": ["Public holidays", "Optional holidays"],
+//   "Insurance benefits": ["Health insurance", "Dependents coverage"],
+//   "Attendance issue": ["Missed punch", "Regularization"],
+// };
+ 
 
  
 
-const handleChipSelect = (chipText) => {
+const handleChipSelect1 = (chipText) => {
   // Append chip text to input
   setMessage((prev) =>
     prev.trim() ? `${prev} ${chipText}` : chipText
   );
 
-  setSuggestions((prev) => {
-    // Remove clicked chip
-    const filtered = prev.filter((c) => c !== chipText);
-
-    // Get related chips
-    const related = CHIP_MAP[chipText] || [];
-
-    // Add new chips without duplicates
-    const merged = [...filtered, ...related].filter(
-      (chip, index, arr) => arr.indexOf(chip) === index
-    );
-
-    // Limit chip count (UI friendly)
-    return merged.slice(0, 6);
-  });
 };
+
+const handleChipSelect = (chipText) => {
+  setMessage((prev) => (prev.trim() ? `${prev} ${chipText}` : chipText));
+  setSuggestions((prev) => prev.filter((c) => c !== chipText)); // remove selected chip
+};
+
+const fetchChips = async (currentMessage) => {
+  // Build conversation array (last few messages + current user message)
+  const conversation = [
+    ...chat.map((m) => ({ role: m.role, content: m.text })),
+    { role: "user", content: currentMessage }
+  ];
+
+  try {
+    const res = await fetch("http://localhost:9091/askhr/api/chips", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "emailId": email  // pass email if backend needs it
+      },
+      body: JSON.stringify({ conversation }),
+    });
+
+    if (!res.ok) throw new Error("Failed to fetch chips");
+
+    const data = await res.json();
+    setSuggestions(data.chips || []);
+  } catch (err) {
+    console.error(err);
+    setSuggestions([]);
+  }
+};
+
+useEffect(() => {
+  if (!message.trim()) return;
+  fetchChips(message);
+}, [message, chat]);
+ 
+  // ---------- suggestions List ends----------
 
   // ---------- LOGIN USER ----------
   const username = user?.name || "";
   const email = user?.employeeId || "";
-
-  const messages = [
-    "Need help?",
-    "I'm here 👋",
-    "Ask me anything!",
-    "Need more help?",
-  ];
 
   /* ================== LOAD HISTORY ================== */
   useEffect(() => {
@@ -513,7 +516,7 @@ const handleChipSelect = (chipText) => {
           </button>
         </div>
         <SuggestionChips
-          suggestions={suggestionList}
+          suggestions={suggestions}
           onSelect={handleChipSelect}
       />
         <div className="footer-note">&copy; Developed by Abhinav Kumar @ 2026</div>
