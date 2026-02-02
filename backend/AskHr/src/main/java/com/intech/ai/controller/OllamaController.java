@@ -33,7 +33,7 @@ public class OllamaController {
 
         // 2️⃣ Polite messages (static)
         if (HRUtility.isPoliteMessage(message)) {
-            return Flux.just("You're welcome! 😊");
+            return Flux.just("I am fine. And you're welcome! 😊");
         }
 
         // 3️⃣ EVERYTHING ELSE → Service decides (policy vs action)

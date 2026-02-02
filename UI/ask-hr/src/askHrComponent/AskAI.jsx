@@ -463,7 +463,8 @@ const handleChipSelect = (chipText) => {
       <h1>
         <strong>{getTimeGreeting()}</strong> {user?.name}
       </h1>
-      <p>How can I help you today?</p>
+      <p>I am <b>Intexa.</b><br></br>
+      How can I help you today?</p>
     </div>
   ) : (
     <div className="chat-body">
