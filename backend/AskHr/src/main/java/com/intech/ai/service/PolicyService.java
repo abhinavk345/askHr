@@ -47,7 +47,9 @@ public class PolicyService {
 
     private String buildContext(List<Document> docs) {
         return docs.stream()
-                .map(d -> d.getText().substring(0, Math.min(800, d.getText().length())))
+             //   .map(d -> d.getText().substring(0, Math.min(800, d.getText().length())))
+                .map(d -> d.getText().substring(0, 300))
+                .limit(2)
                 .collect(Collectors.joining("\n\n"));
     }
 }
