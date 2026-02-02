@@ -114,5 +114,19 @@ public class FuzzyTextUtil {
         }
         return false;
     }
+
+    public static boolean hasToken(String text, String token) {
+        if (text == null || token == null) return false;
+
+        String cleaned = text.toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " "); // remove punctuation
+
+        String[] parts = cleaned.trim().split("\\s+");
+        for (String p : parts) {
+            if (p.equals(token.toLowerCase())) return true;
+        }
+        return false;
+    }
+
 }
 

@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -136,6 +138,7 @@ public class QueryService {
 
                     ticket.setDescription(ticket.getDescription() + ", UpdatedReason=" + newReason);
                     ticket.setUpdatedAt(LocalDateTime.now());
+
 
                     return Mono.fromCallable(() -> leaveTicketRepository.save(ticket))
                             .subscribeOn(Schedulers.boundedElastic())
@@ -759,13 +762,15 @@ public class QueryService {
 
         leaveFlow.remove(userId);
 
-        return Flux.just("""
-            ✅ Leave ticket created successfully
-            Ticket ID: %s
-            Leave Type: %s
-            From: %s
-            To: %s
-            """.formatted(ticket.getId(), state.getLeaveType(), state.getFromDate(), state.getToDate()));
+        return Mono.fromCallable(() -> leaveTicketRepository.save(ticket))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(saved ->
+                        Flux.just("✅ Leave ticket created successfully for Ticket ID: " + saved.getId()
+                                        +"Leave Type: "+state.getLeaveType()
+                                        +"From: "+state.getFromDate()
+                                        +"To: "+ state.getToDate()
+                        ));
+
     }
 
     /* ============================================================
@@ -852,105 +857,63 @@ public class QueryService {
         return null;
     }
 
-    /* ============================================================
-       Date parsing (supports today/tomorrow + typo)
-       ============================================================ */
-    private LocalDate parseDate1(String message) {
-        if (message == null) return null;
+    private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
+            DateTimeFormatter.ISO_LOCAL_DATE,                    // yyyy-MM-dd
+            DateTimeFormatter.ofPattern("yyyy-M-d"),             // yyyy-M-d
+            DateTimeFormatter.ofPattern("d/M/yyyy"),             // d/M/yyyy
+            DateTimeFormatter.ofPattern("dd/MM/yyyy"),           // dd/MM/yyyy
+            DateTimeFormatter.ofPattern("M-d-yyyy"),             // M-d-yyyy
+            DateTimeFormatter.ofPattern("MM-dd-yyyy"),           // MM-dd-yyyy
+            DateTimeFormatter.ofPattern("d-M-yyyy"),             // d-M-yyyy
+            DateTimeFormatter.ofPattern("dd-MM-yyyy")            // dd-MM-yyyy
+    );
 
-        String m = FuzzyTextUtil.normalize(message);
-
-        if (m.contains("today") || FuzzyTextUtil.fuzzyTokenMatch(m, "today", 1)) {
-            return LocalDate.now();
-        }
-
-        if (m.contains("tomorrow") || FuzzyTextUtil.fuzzyTokenMatch(m, "tomorrow", 2)
-                || FuzzyTextUtil.fuzzyTokenMatch(m, "tomorow", 2)) {
-            return LocalDate.now().plusDays(1);
-        }
-
-        try {
-            String[] tokens = m.split(" ");
-            for (String t : tokens) {
-                if (t.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                    return LocalDate.parse(t, DateTimeFormatter.ISO_LOCAL_DATE);
-                }
-            }
-        } catch (DateTimeParseException ignored) {
-        }
-
-        return null;
-    }
     private LocalDate parseDate(String message) {
         if (message == null || message.isBlank()) return null;
 
         String m = FuzzyTextUtil.normalize(message);
 
-        // -------------------------
-        // 1) today / tomorrow
-        // -------------------------
-        if (m.contains("today") || FuzzyTextUtil.fuzzyTokenMatch(m, "today", 1)) {
+        // 1) today / tomorrow (token based)
+        if (FuzzyTextUtil.hasToken(m, "today") || FuzzyTextUtil.fuzzyTokenMatch(m, "today", 1)) {
             return LocalDate.now();
         }
 
-        if (m.contains("tomorrow")
+        if (FuzzyTextUtil.hasToken(m, "tomorrow")
                 || FuzzyTextUtil.fuzzyTokenMatch(m, "tomorrow", 2)
                 || FuzzyTextUtil.fuzzyTokenMatch(m, "tomorow", 2)
-                || m.contains("tmrw")) {
+                || FuzzyTextUtil.hasToken(m, "tmrw")) {
             return LocalDate.now().plusDays(1);
         }
 
-        // -------------------------
         // 2) next monday / next tuesday ...
-        // -------------------------
         LocalDate nextDow = parseNextDayOfWeek(m);
         if (nextDow != null) return nextDow;
 
-        // -------------------------
-        // 3) Try to extract explicit date patterns
-        // Supports:
-        // yyyy-MM-dd
-        // dd/MM/yyyy
-        // MM-dd-yyyy
-        // dd MMM yyyy / dd MMM
-        // -------------------------
-        String[] tokens = m.split("\\s+");
+        // 3) extract date-like substring using regex (handles commas/colons etc.)
+        // examples: "2026-02-01," "date:2026-2-1" "1/2/2026"
+        Pattern p = Pattern.compile("(\\d{4}-\\d{1,2}-\\d{1,2})|(\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})");
+        Matcher matcher = p.matcher(m);
 
-        // (a) yyyy-MM-dd
-        for (String t : tokens) {
-            if (t.matches("\\d{4}-\\d{2}-\\d{2}")) {
+        while (matcher.find()) {
+            String raw = matcher.group().trim();
+
+            for (DateTimeFormatter f : DATE_FORMATS) {
                 try {
-                    return LocalDate.parse(t, DateTimeFormatter.ISO_LOCAL_DATE);
-                } catch (DateTimeParseException ignored) {}
+                    return LocalDate.parse(raw, f);
+                } catch (DateTimeParseException ignored) {
+                }
             }
         }
 
-        // (b) dd/MM/yyyy
-        for (String t : tokens) {
-            if (t.matches("\\d{2}/\\d{2}/\\d{4}")) {
-                try {
-                    DateTimeFormatter f = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-                    return LocalDate.parse(t, f);
-                } catch (DateTimeParseException ignored) {}
-            }
-        }
-
-        // (c) MM-dd-yyyy
-        for (String t : tokens) {
-            if (t.matches("\\d{2}-\\d{2}-\\d{4}")) {
-                try {
-                    DateTimeFormatter f = DateTimeFormatter.ofPattern("MM-dd-yyyy");
-                    return LocalDate.parse(t, f);
-                } catch (DateTimeParseException ignored) {}
-            }
-        }
-
-        // (d) "15 feb" or "15 feb 2026"
+        // 4) month name date: "15 feb" / "15 feb 2026"
         LocalDate monthNameDate = parseMonthNameDate(m);
         if (monthNameDate != null) return monthNameDate;
 
         return null;
     }
+
+
+
     private LocalDate parseNextDayOfWeek(String normalizedMessage) {
 
         if (normalizedMessage == null) return null;

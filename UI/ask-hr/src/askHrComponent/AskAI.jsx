@@ -29,32 +29,10 @@ function AskAI({ user }) {
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const dragThreshold = 5;
-
   const chatEndRef = useRef(null);
-
   // ---------- suggestions List----------
 const [suggestions, setSuggestions] = useState(["leave policy","confirm"]);
- //const [messages, setMessages] = useState("");
-//   const CHIP_MAP = {
-//   "Leave policy": ["Casual leave", "Sick leave", "Apply leave"],
-//   "Salary slip": ["Download slip", "CTC breakup", "Tax deduction"],
-//   "WFH policy": ["Hybrid policy", "Approval process", "WFH days"],
-//   "Holiday list": ["Public holidays", "Optional holidays"],
-//   "Insurance benefits": ["Health insurance", "Dependents coverage"],
-//   "Attendance issue": ["Missed punch", "Regularization"],
-// };
  
-
- 
-
-const handleChipSelect1 = (chipText) => {
-  // Append chip text to input
-  setMessage((prev) =>
-    prev.trim() ? `${prev} ${chipText}` : chipText
-  );
-
-};
-
 const handleChipSelect = (chipText) => {
   setMessage((prev) => (prev.trim() ? `${prev} ${chipText}` : chipText));
   setSuggestions((prev) => prev.filter((c) => c !== chipText)); // remove selected chip
