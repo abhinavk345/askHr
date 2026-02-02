@@ -1,0 +1,60 @@
+.suggestion-chips {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid #e5e5e5;
+  background: #fafafa;
+  overflow-x: auto;
+}
+
+.suggestion-chips::-webkit-scrollbar {
+  height: 4px;
+}
+
+.suggestion-chips::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 10px;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 16px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: 
+    transform 0.25s ease,
+    opacity 0.25s ease,
+    background 0.2s ease;
+}
+
+.chip:active {
+  transform: rotate(8deg) scale(0.9);
+  opacity: 0.6;
+}
+
+.chip:hover {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
+.chip .remove-btn {
+  background: transparent;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  color: #999;
+  font-size: 12px;
+  padding: 0;
+  line-height: 1;
+}
+
+.chip .remove-btn:hover {
+  color: #f43f5e;
+}

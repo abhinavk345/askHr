@@ -2,10 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import "../askHrComponent/AskAI.css";
 import askLogo from "../images/askLogos.png";
 import Menu from "./Menu";
+import parse from 'html-react-parser';
+import DOMPurify from 'dompurify';
 // Import sound files
 import sendSound from "../sounds/send.mp3";
 import receiveSound from "../sounds/whatsappSend.mp3";
-
+import AudioButton from "../AudioToText/AudioButton";
+import SuggestionChips from "../Suggestions/SuggestionChips";
 function AskAI({ user }) {
   /* ================== STATE ================== */
   const [chatHistory, setChatHistory] = useState({});
@@ -26,19 +29,52 @@ function AskAI({ user }) {
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const dragThreshold = 5;
-
   const chatEndRef = useRef(null);
+  // ---------- suggestions List----------
+const [suggestions, setSuggestions] = useState(["leave policy","confirm"]);
+ 
+const handleChipSelect = (chipText) => {
+  setMessage((prev) => (prev.trim() ? `${prev} ${chipText}` : chipText));
+  setSuggestions((prev) => prev.filter((c) => c !== chipText)); // remove selected chip
+};
+
+const fetchChips = async (currentMessage) => {
+  // Build conversation array (last few messages + current user message)
+  const conversation = [
+    ...chat.map((m) => ({ role: m.role, content: m.text })),
+    { role: "user", content: currentMessage }
+  ];
+
+  try {
+    const res = await fetch("http://localhost:9091/askhr/api/chips", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "emailId": email  // pass email if backend needs it
+      },
+      body: JSON.stringify({ conversation }),
+    });
+
+    if (!res.ok) throw new Error("Failed to fetch chips");
+
+    const data = await res.json();
+    setSuggestions(data.chips || []);
+  } catch (err) {
+    console.error(err);
+    setSuggestions([]);
+  }
+};
+
+useEffect(() => {
+  if (!message.trim()) return;
+  fetchChips(message);
+}, [message, chat]);
+ 
+  // ---------- suggestions List ends----------
 
   // ---------- LOGIN USER ----------
   const username = user?.name || "";
   const email = user?.employeeId || "";
-
-  const messages = [
-    "Need help?",
-    "I'm here 👋",
-    "Ask me anything!",
-    "Need more help?",
-  ];
 
   /* ================== LOAD HISTORY ================== */
   useEffect(() => {
@@ -408,7 +444,8 @@ function AskAI({ user }) {
       <h1>
         <strong>{getTimeGreeting()}</strong> {user?.name}
       </h1>
-      <p>How can I help you today?</p>
+      <p>I am <b>Intexa.</b><br></br>
+      How can I help you today?</p>
     </div>
   ) : (
     <div className="chat-body">
@@ -417,8 +454,8 @@ function AskAI({ user }) {
           key={i}
           className={`chat-bubble ${msg.role} ${msg.failed ? "retry" : ""}`}
           onClick={() => msg.failed && retryMessage(msg.originalMessage)}
-        >
-          {msg.text}
+        >{parse(DOMPurify.sanitize(msg.text))}
+          {/* {msg.text} */}
           <div className="timestamp">{msg.time}</div>
         </div>
       ))}
@@ -445,6 +482,7 @@ function AskAI({ user }) {
             onKeyDown={handleKeyDown}
             placeholder="How can I help you today?"
           />
+          <AudioButton onTranscribe={(text) => setMessage(text)} />
           <button
             className={loading ? "pause" : ""}
             onClick={() => {
@@ -455,7 +493,10 @@ function AskAI({ user }) {
             {loading ? "Pause" : "Ask"}
           </button>
         </div>
-
+        <SuggestionChips
+          suggestions={suggestions}
+          onSelect={handleChipSelect}
+      />
         <div className="footer-note">&copy; Developed by Abhinav Kumar @ 2026</div>
       </div>
     </div>

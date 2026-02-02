@@ -14,20 +14,19 @@ public class PolicyService {
 
     private final VectorStore vectorStore;
     private final AiChatService aiChatService;
+    private final PolicySearchService policySearchService;
 
     public String answerPolicy(String question) throws Exception {
 
         // 1️⃣ Retrieve TOP 3 relevant policy chunks
-        List<Document> documents = vectorStore.similaritySearch(question);
-
+       // List<Document> documents = vectorStore.similaritySearch(question);
+        List<Document> documents =policySearchService.searchPolicy(question);
         if (documents.isEmpty()) {
             return "Sorry, I could not find relevant HR policy information.";
         }
 
         // 2️⃣ Build context
-        String context = documents.stream()
-                .map(Document::getText)
-                .collect(Collectors.joining("\n\n"));
+        String context = buildContext(documents);
 
         // 3️⃣ RAG prompt
         String prompt = """
@@ -44,5 +43,13 @@ public class PolicyService {
 
         // 4️⃣ LLM call
         return aiChatService.ask(prompt).get();
+    }
+
+    private String buildContext(List<Document> docs) {
+        return docs.stream()
+             //   .map(d -> d.getText().substring(0, Math.min(800, d.getText().length())))
+                .map(d -> d.getText().substring(0, 300))
+                .limit(2)
+                .collect(Collectors.joining("\n\n"));
     }
 }
