@@ -509,14 +509,24 @@ public class QueryService {
 
         LocalDate possibleDate = parseDate(message);
         if (possibleDate != null) {
-            if (state.getFromDate() == null) state.setFromDate(possibleDate);
-            if (state.getToDate() == null && state.getFromDate() != null) state.setToDate(state.getFromDate());
+            if (state.getFromDate() == null) {
+                state.setFromDate(possibleDate);
+            }
         }
 
         if (state.getReason() == null) {
             String possibleReason = extractReason(message);
             if (possibleReason != null && !possibleReason.isBlank()) {
                 state.setReason(possibleReason);
+            }
+        }
+
+        if (state.getFromDate() != null && state.getToDate() == null) {
+
+            Integer durationDays = IntentDetector.extractDurationDays(message);
+
+            if (durationDays != null && durationDays > 1) {
+                state.setToDate(state.getFromDate().plusDays(durationDays - 1));
             }
         }
 
@@ -625,13 +635,22 @@ public class QueryService {
         if (state.getStep() == LeaveStep.TO_DATE) {
 
             if (state.getToDate() == null) {
-                LocalDate to = lower.equals("same") || FuzzyTextUtil.fuzzyTokenMatch(lower, "same", 1)
-                        ? state.getFromDate()
-                        : parseDate(message);
+
+                Integer durationDays = IntentDetector.extractDurationDays(message);
+
+                LocalDate to;
+                if (durationDays != null && durationDays > 1) {
+                    to = state.getFromDate().plusDays(durationDays - 1);
+                } else if (lower.equals("same") || FuzzyTextUtil.fuzzyTokenMatch(lower, "same", 1)) {
+                    to = state.getFromDate();
+                } else {
+                    to = parseDate(message);
+                }
 
                 if (to == null) {
-                    return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'same'");
+                    return Flux.just("Invalid date. Please enter yyyy-MM-dd, 'same', or duration like '5 days'");
                 }
+
                 state.setToDate(to);
             }
 
@@ -669,6 +688,20 @@ public class QueryService {
             """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
         }
 
+        if ("Paternity Leave".equalsIgnoreCase(state.getLeaveType())
+                && state.getFromDate() != null
+                && state.getToDate() != null
+                && state.getFromDate().equals(state.getToDate())) {
+
+            state.setToDate(null);
+            state.setStep(LeaveStep.TO_DATE);
+
+            return Flux.just(
+                    "❗ Paternity leave is usually taken for multiple days. " +
+                            "Please specify duration (e.g. 5 days) or an end date."
+            );
+        }
+
         // ------------------------------------------------------------
         // CONFIRM
         // ------------------------------------------------------------
@@ -704,192 +737,6 @@ public class QueryService {
         state.setStep(LeaveStep.CONFIRM);
         return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
     }
-
-
-//    private Flux<String> handleLeaveCreation1(String message, String userId) {
-//
-//        if (userId == null || userId.isBlank()) {
-//            return Flux.just("Please login to apply leave.");
-//        }
-//
-//        LeaveFlowState state = leaveFlow.computeIfAbsent(userId, k -> {
-//            LeaveFlowState s = new LeaveFlowState();
-//            s.setStep("TYPE");
-//            return s;
-//        });
-//
-//        String lower = FuzzyTextUtil.normalize(message);
-//
-//        // Cancel support
-//        if (lower.contains("cancel") || FuzzyTextUtil.fuzzyTokenMatch(lower, "cancel", 2)) {
-//            leaveFlow.remove(userId);
-//            return Flux.just("❌ Leave request cancelled.");
-//        }
-//
-//        /* ============================================================
-//           Step: TYPE (start)
-//           ============================================================ */
-//        if ("TYPE".equals(state.getStep())) {
-//
-//            // Try extracting leave details directly from same sentence
-//            String extractedType = parseLeaveType(message);
-//            if (extractedType != null) state.setLeaveType(extractedType);
-//
-//            LocalDate possibleDate = parseDate(message);
-//            if (possibleDate != null) {
-//                state.setFromDate(possibleDate);
-//                state.setToDate(possibleDate);
-//            }
-//
-//            String possibleReason = extractReason(message);
-//            if (possibleReason != null && !possibleReason.isBlank()) {
-//                state.setReason(possibleReason);
-//            }
-//
-//            boolean confirmedInMessage = isConfirmMessage(message);
-//
-//            // If all details already present -> confirm / create
-//            if (state.getLeaveType() != null
-//                    && state.getFromDate() != null
-//                    && state.getToDate() != null
-//                    && state.getReason() != null) {
-//
-//                state.setStep("CONFIRM");
-//
-//                if (confirmedInMessage) {
-//                    return createLeaveTicketAndReset(state, userId);
-//                }
-//
-//                return Flux.just("""
-//                    Please confirm leave request:
-//                    Leave Type: %s
-//                    From: %s
-//                    To: %s
-//                    Reason: %s
-//
-//                    Reply: CONFIRM to submit OR CANCEL
-//                    """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
-//            }
-//
-//            // If leave type missing -> show menu
-//            state.setStep("LEAVE_TYPE"); // ✅ FIXED
-//            return Flux.just("""
-//                Please select Leave Type:</br>
-//                1. Need Based Leave</br>
-//                2. Planned Leave</br>
-//                3. Paternity Leave</br>
-//                4. Maternity Leave</br>
-//                5. Project Leave</br>
-//                6. Leave Without Pay</br>
-//                7. Election Leave</br>
-//                8. Birthday Leave</br>
-//                Reply with number or leave type name.
-//                """);
-//        }
-//
-//        /* ============================================================
-//           Step: LEAVE_TYPE (capture leave type)
-//           ============================================================ */
-//        if ("LEAVE_TYPE".equals(state.getStep()) && state.getLeaveType() == null) {
-//
-//            String type = parseLeaveType(message);
-//            if (type == null) {
-//                return Flux.just("Invalid leave type. Please reply with 1-8 or leave name.");
-//            }
-//
-//            state.setLeaveType(type);
-//
-//            // if user also typed date in same message
-//            LocalDate possibleDate = parseDate(message);
-//            if (possibleDate != null) {
-//                state.setFromDate(possibleDate);
-//                state.setToDate(possibleDate);
-//                state.setStep("REASON");
-//                return Flux.just("Got it 👍 Leave for " + possibleDate + ". Please enter reason for leave:");
-//            }
-//
-//            state.setStep("FROM_DATE");
-//            return Flux.just("Enter From Date (yyyy-MM-dd) OR type 'today' / 'tomorrow'");
-//        }
-//
-//        /* ============================================================
-//           Step: FROM_DATE
-//           ============================================================ */
-//        if ("FROM_DATE".equals(state.getStep()) && state.getFromDate() == null) {
-//
-//            LocalDate from = parseDate(message);
-//            if (from == null) {
-//                return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'today' / 'tomorrow'");
-//            }
-//
-//            state.setFromDate(from);
-//            state.setStep("TO_DATE");
-//
-//            return Flux.just("Enter To Date (yyyy-MM-dd) OR type 'same'");
-//        }
-//
-//        /* ============================================================
-//           Step: TO_DATE (validation)
-//           ============================================================ */
-//        if ("TO_DATE".equals(state.getStep()) && state.getToDate() == null) {
-//
-//            LocalDate to = lower.equals("same") || FuzzyTextUtil.fuzzyTokenMatch(lower, "same", 1)
-//                    ? state.getFromDate()
-//                    : parseDate(message);
-//
-//            if (to == null) {
-//                return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'same'");
-//            }
-//
-//            if (to.isBefore(state.getFromDate())) {
-//                return Flux.just("❌ To Date cannot be earlier than From Date. Please enter valid To Date (yyyy-MM-dd) or type 'same'.");
-//            }
-//
-//            state.setToDate(to);
-//            state.setStep("REASON");
-//
-//            return Flux.just("Enter reason for leave:");
-//        }
-//
-//        /* ============================================================
-//           Step: REASON
-//           ============================================================ */
-//        if ("REASON".equals(state.getStep()) && state.getReason() == null) {
-//
-//            String reason = message.trim();
-//            if (reason.isBlank()) {
-//                return Flux.just("Please enter a valid reason.");
-//            }
-//
-//            state.setReason(reason);
-//            state.setStep("CONFIRM");
-//
-//            return Flux.just("""
-//                Please confirm leave request:
-//                Leave Type: %s
-//                From: %s
-//                To: %s
-//                Reason: %s
-//
-//                Reply: CONFIRM to submit OR CANCEL
-//                """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
-//        }
-//
-//        /* ============================================================
-//           Step: CONFIRM
-//           ============================================================ */
-//        if ("CONFIRM".equals(state.getStep())) {
-//
-//            if (!isConfirmMessage(message)) {
-//                return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
-//            }
-//
-//            return createLeaveTicketAndReset(state, userId);
-//        }
-//
-//        return Flux.just("Something went wrong in leave flow. Type CANCEL and retry.");
-//    }
-
     /* ============================================================
        Ticket creation helper
        ============================================================ */

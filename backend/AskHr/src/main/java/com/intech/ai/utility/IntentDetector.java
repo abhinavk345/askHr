@@ -1,6 +1,8 @@
 package com.intech.ai.utility;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.intech.ai.utility.HRUtility.isGreeting;
 
@@ -181,5 +183,21 @@ public class IntentDetector {
         return POLICY_KEYWORDS.stream().anyMatch(m::contains);
     }
 
+    public static boolean hasDateRange(String message) {
+        String m = message.toLowerCase();
+        return m.contains("to")
+                || m.contains("till")
+                || m.contains("until")
+                || m.contains("next");
+    }
 
+    public static Integer extractDurationDays(String message) {
+        Pattern p = Pattern.compile("(\\d+)\\s*(day|days)");
+        Matcher m = p.matcher(message.toLowerCase());
+
+        if (m.find()) {
+            return Integer.parseInt(m.group(1));
+        }
+        return null;
+    }
 }
