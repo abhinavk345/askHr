@@ -1,9 +1,7 @@
 package com.intech.ai.service;
 
 import com.intech.ai.modal.LeaveFlowState;
-import com.intech.ai.modal.LeaveRequest;
 import com.intech.ai.modal.Ticket;
-import com.intech.ai.repository.LeaveRequestRepository;
 import com.intech.ai.repository.TicketRepository;
 import com.intech.ai.utility.IntentDetector;
 import com.intech.ai.utility.LeavePolicyCatalog;
@@ -61,59 +59,6 @@ public class QueryService {
         return handlePolicyQuery(message, userId);
     }
 
-
-
-    private Flux<String> handleLeaveCreation1(String message, String userId) {
-
-        String extractPrompt = "...";
-
-        return Flux.create(sink ->
-                aiChatService.ask(extractPrompt)
-                        .thenAccept(date -> {
-
-                            if ("UNKNOWN".equalsIgnoreCase(date.trim())) {
-                                sink.next("Please specify the leave date.");
-                                sink.complete();
-                                return;
-                            }
-
-                            Ticket ticket = new Ticket();
-                            ticket.setEmployeeId(userId);
-                            ticket.setStatus("CREATED");
-                            ticket.setCreatedAt(LocalDateTime.now());
-
-                            leaveTicketRepository.save(ticket);
-
-                            sink.next(
-                                    "✅ Leave ticket created successfully\n" +
-                                            "Ticket ID: " + ticket.getId()
-                            );
-                            sink.complete();
-                        })
-                        .exceptionally(ex -> {
-                            sink.error(ex);
-                            return null;
-                        })
-        );
-    }
-
-    private Flux<String> handleLeaveCreation2(String message, String userId) {
-
-        String lower = message.toLowerCase();
-
-        // 🔐 SAFETY GATE — no DB write without confirmation
-        if (!lower.contains("confirm")) {
-            return Flux.just(
-                    "I can create a leave ticket for you.\n" +
-                            "Please confirm by replying:\n" +
-                            "**confirm leave for <date>**"
-            );
-        }
-
-        // Only confirmed requests reach here
-        return createLeaveTicket(message, userId);
-    }
-
     private Flux<String> handleLeaveCreation(String message, String userId) {
 
         if (userId == null || userId.isBlank()) {
@@ -126,7 +71,7 @@ public class QueryService {
             return s;
         });
 
-        String lower = message.toLowerCase().trim();
+        String lower = message == null ? "" : message.toLowerCase().trim();
 
         // Cancel support
         if (lower.contains("cancel")) {
@@ -134,74 +79,128 @@ public class QueryService {
             return Flux.just("❌ Leave request cancelled.");
         }
 
-        // Step: TYPE
+    /* =========================
+       Step: TYPE (Leave type)
+       ========================= */
         if ("TYPE".equals(state.getStep())) {
+
+            // ✅ Auto-extract date if user says "today", "tomorrow", or yyyy-MM-dd in first message
+            // Example: "please create leave for today"
+            LocalDate possibleDate = parseDate(message);
+            if (possibleDate != null) {
+                state.setFromDate(possibleDate);
+                state.setToDate(possibleDate);
+                state.setStep("REASON");
+                return Flux.just("Got it 👍 Leave for " + possibleDate + ". Please enter reason for leave:");
+            }
+
+            // Otherwise show leave type options
             state.setStep("FROM_DATE");
             return Flux.just("""
-                Please select Leave Type:</br>
-                1. Need Based Leave</br>
-                2. Planned Leave</br>
-                3. Paternity Leave</br>
-                4. Maternity Leave</br>
-                5. Project Leave</br>
-                6. Leave Without Pay</br>
-                7. Election Leave</br>
-                8. Birthday Leave</br>
-                Reply with number or leave type name.
-                """);
+            Please select Leave Type:</br>
+            1. Need Based Leave</br>
+            2. Planned Leave</br>
+            3. Paternity Leave</br>
+            4. Maternity Leave</br>
+            5. Project Leave</br>
+            6. Leave Without Pay</br>
+            7. Election Leave</br>
+            8. Birthday Leave</br>
+            Reply with number or leave type name.
+            """);
         }
 
-        // Capture leave type
+    /* =========================
+       Step: FROM_DATE - capture leave type first
+       ========================= */
         if ("FROM_DATE".equals(state.getStep()) && state.getLeaveType() == null) {
+
             String type = parseLeaveType(message);
             if (type == null) {
                 return Flux.just("Invalid leave type. Please reply with 1-8 or leave name.");
             }
+
             state.setLeaveType(type);
-            return Flux.just("Enter From Date (yyyy-MM-dd) OR type 'tomorrow'");
+
+            // If user already typed a date in same message (optional enhancement)
+            LocalDate possibleDate = parseDate(message);
+            if (possibleDate != null) {
+                state.setFromDate(possibleDate);
+                state.setToDate(possibleDate);
+                state.setStep("REASON");
+                return Flux.just("Got it 👍 Leave for " + possibleDate + ". Please enter reason for leave:");
+            }
+
+            return Flux.just("Enter From Date (yyyy-MM-dd) OR type 'today' / 'tomorrow'");
         }
 
-        // From date
+    /* =========================
+       Step: FROM_DATE - capture from date
+       ========================= */
         if ("FROM_DATE".equals(state.getStep()) && state.getFromDate() == null) {
+
             LocalDate from = parseDate(message);
-            if (from == null) return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'tomorrow'");
+            if (from == null) {
+                return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'today' / 'tomorrow'");
+            }
+
             state.setFromDate(from);
             state.setStep("TO_DATE");
+
             return Flux.just("Enter To Date (yyyy-MM-dd) OR type 'same'");
         }
 
-        // To date
+    /* =========================
+       Step: TO_DATE - capture to date
+       ========================= */
         if ("TO_DATE".equals(state.getStep()) && state.getToDate() == null) {
-            LocalDate to = message.equalsIgnoreCase("same") ? state.getFromDate() : parseDate(message);
-            if (to == null) return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'same'");
+
+            LocalDate to = lower.equals("same") ? state.getFromDate() : parseDate(message);
+
+            if (to == null) {
+                return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'same'");
+            }
+
+            // ✅ Validation: To date cannot be earlier than From date
+            if (to.isBefore(state.getFromDate())) {
+                return Flux.just("❌ To Date cannot be earlier than From Date. Please enter a valid To Date (yyyy-MM-dd) or type 'same'.");
+            }
+
             state.setToDate(to);
             state.setStep("REASON");
+
             return Flux.just("Enter reason for leave:");
         }
 
-        // Reason
+    /* =========================
+       Step: REASON
+       ========================= */
         if ("REASON".equals(state.getStep()) && state.getReason() == null) {
+
             state.setReason(message.trim());
             state.setStep("CONFIRM");
 
             return Flux.just("""
-                Please confirm leave request:
-                Leave Type: %s
-                From: %s
-                To: %s
-                Reason: %s
-                                
-                Reply: CONFIRM to submit OR CANCEL
-                """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
+            Please confirm leave request:
+            Leave Type: %s
+            From: %s
+            To: %s
+            Reason: %s
+
+            Reply: CONFIRM to submit OR CANCEL
+            """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
         }
 
-        // Confirm
+    /* =========================
+       Step: CONFIRM
+       ========================= */
         if ("CONFIRM".equals(state.getStep())) {
+
             if (!lower.equals("confirm")) {
                 return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
             }
 
-            // ✅ Now create ticket only after all details
+            // ✅ Create ticket only after confirmation
             Ticket ticket = new Ticket();
             ticket.setEmployeeId(userId);
             ticket.setCategory("LEAVE");
@@ -213,21 +212,22 @@ public class QueryService {
             );
             ticket.setStatus("CREATED");
             ticket.setCreatedAt(LocalDateTime.now());
-            leaveTicketRepository.save(ticket);
 
+            leaveTicketRepository.save(ticket);
             leaveFlow.remove(userId);
 
             return Flux.just("""
-                ✅ Leave ticket created successfully
-                Ticket ID: %s
-                Leave Type: %s
-                From: %s
-                To: %s
-                """.formatted(ticket.getId(), state.getLeaveType(), state.getFromDate(), state.getToDate()));
+            ✅ Leave ticket created successfully
+            Ticket ID: %s
+            Leave Type: %s
+            From: %s
+            To: %s
+            """.formatted(ticket.getId(), state.getLeaveType(), state.getFromDate(), state.getToDate()));
         }
 
         return Flux.just("Something went wrong in leave flow. Type CANCEL and retry.");
     }
+
 
     /* ================= POLICY (RAG) HANDLER ================= */
 
@@ -297,7 +297,17 @@ public class QueryService {
 
             // 🚨 RAG Guard (prevents hallucination)
             if (documents.isEmpty() || documents.get(0).getScore() < 0.75) {
-                return Flux.just("I don’t have information on this.");
+                // fallback to general AI response
+                String prompt = """
+        You are an HR assistant for INTECH INDIA.
+        If question is not HR related, reply politely that you handle HR topics only.
+        Keep response short (max 4 lines).
+
+        User Question:
+        %s
+        """.formatted(message);
+
+                return aiChatService.askStream(prompt);
             }
 
             String context = buildContext(documents);

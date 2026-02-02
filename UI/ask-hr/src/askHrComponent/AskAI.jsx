@@ -38,7 +38,7 @@ const [suggestions, setSuggestions] = useState([
   "Salary slip",
   "WFH policy",
   "Holiday list",
-  "Insurance benefits",
+  "confirm",
   "Attendance issue",
 ]);
 
@@ -55,7 +55,7 @@ const [suggestions, setSuggestions] = useState([
   "create",
   "tomorrow",
   "same",
-  "Insurance benefits",
+  "confirm",
   "Attendance issue",
 ];
 
