@@ -16,8 +16,9 @@ public class OllamaWarmup {
     @PostConstruct
     public void warmUp() {
         chatClient.prompt()
-                .user("Hi")
+                .system("You are an HR assistant")
+                .user("warmup")
                 .call();
-        System.out.println("🔥 Ollama model warmed up");
+        System.out.println("🔥 Ollama fully warmed");
     }
 }

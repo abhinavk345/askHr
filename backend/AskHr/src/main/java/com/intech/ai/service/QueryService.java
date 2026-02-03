@@ -106,8 +106,11 @@ public class QueryService {
 
 // ✅ CACHE HIT → DO NOT CALL LLM
         if (llmCache.contains(normalizedPrompt)) {
-            String cached = llmCache.get(normalizedPrompt);
-            return streamLikeLlm(cached);
+            return streamLikeLlm(llmCache.get(normalizedPrompt));
+        }
+
+        if (IntentDetector.isLeavePolicyQuery(message)) {
+            return aiChatService.askStream(message);
         }
 
         if (!semanticCache.isEmpty()) {

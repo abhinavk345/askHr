@@ -29,13 +29,13 @@ public class AiChatService {
                         .content());
     }
 
-    public Flux<String> askStream(String prompt) {
+    public String askStream(String prompt) {
         System.out.println("🔥 Calling Ollama with prompt: " + prompt);
         String systemPrompt = intexaPrompts.systemPrompt();
         return chatClient
                 .prompt()
                 .system(systemPrompt)
                 .user(prompt)
-                .stream().content();
+                .call().content();
     }
 }

@@ -4,21 +4,18 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
 public class SemanticResponseCache {
 
-    private final List<SemanticCacheEntry> cache = new ArrayList<>();
+    private final List<SemanticCacheEntry> cache = new CopyOnWriteArrayList<>();
 
-    public void put(SemanticCacheEntry entry) {
-        cache.add(entry);
+    public void put(List<Float> embedding, String response) {
+        cache.add(new SemanticCacheEntry(embedding, response));
     }
 
     public List<SemanticCacheEntry> getAll() {
         return cache;
-    }
-
-    public boolean isEmpty() {
-        return cache.isEmpty();
     }
 }

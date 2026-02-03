@@ -5,6 +5,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class EmbeddingService {
@@ -15,17 +17,14 @@ public class EmbeddingService {
         this.embeddingModel = embeddingModel;
     }
 
+    private final Map<String, List<Float>> embeddingCache = new ConcurrentHashMap<>();
+
     public List<Float> embed(String text) {
-
-        // ✅ Your Spring AI returns float[]
-        float[] vector = embeddingModel.embed(text);
-
-        // Convert float[] → List<Float>
-        List<Float> embedding = new ArrayList<>(vector.length);
-        for (float v : vector) {
-            embedding.add(v);
-        }
-
-        return embedding;
+        return embeddingCache.computeIfAbsent(text, t -> {
+            float[] vector = embeddingModel.embed(t);
+            List<Float> list = new ArrayList<>(vector.length);
+            for (float v : vector) list.add(v);
+            return list;
+        });
     }
 }
