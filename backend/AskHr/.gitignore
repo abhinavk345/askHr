@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+backend/dbConfig/*.db
+backend/dbConfig/*.lock.db
+backend/dbConfig/*.mv.db
