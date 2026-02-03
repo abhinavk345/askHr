@@ -39,6 +39,8 @@ public class QueryService {
     private final LlmResponseCache llmCache;
     private final SemanticResponseCache semanticCache;
     private final EmbeddingService embeddingService;
+    private final TicketExportService ticketExportService;
+
     // store conversation state per user
     private final Map<String, LeaveFlowState> leaveFlow = new ConcurrentHashMap<>();
     private final Map<String, UUID> lastTicketContext = new ConcurrentHashMap<>();
@@ -67,27 +69,23 @@ public class QueryService {
             return Flux.just("Please type your query.");
         }
 
-        // 1) If leave flow already started -> continue
-        if (userId != null && leaveFlow.containsKey(userId)) {
-
-            // 1️⃣ Cancel always wins
-            if (IntentDetector.isCancel(message)) {
-                leaveFlow.remove(userId);
-                return Flux.just("❌ Leave process cancelled. How else can I help?");
-            }
-
-            // 2️⃣ New intent overrides leave flow
-            if (IntentDetector.isNewIntent(message)) {
-                leaveFlow.remove(userId);
-                // continue below to fresh intent detection
-            } else {
-                return handleLeaveCreation(message, userId);
-            }
+        // 2) Detect leave intent (supports fuzzy + typos)
+        if (IntentDetector.isLeavePolicyQuery(message)) {
+            // direct policy answer using LLM/RAG
+            return aiChatService.askStream(message);
         }
 
-        // 2) Detect leave intent (supports fuzzy + typos)
         if (IntentDetector.isLeaveCreationRequest(message)) {
             return handleLeaveCreation(message, userId);
+        }
+
+        // Ticket update
+        if (IntentDetector.isTicketUpdateRequest(message)) {
+            return handleTicketUpdate(message, userId);
+        }
+
+        if (IntentDetector.isTicketStatusExportRequest(message)) {
+            return handleTicketStatusExport(userId);
         }
 
         // Ticket status
@@ -98,11 +96,6 @@ public class QueryService {
         // Ticket delete
         if (IntentDetector.isTicketDeleteRequest(message)) {
             return handleTicketDelete(message, userId);
-        }
-
-        // Ticket update
-        if (IntentDetector.isTicketUpdateRequest(message)) {
-            return handleTicketUpdate(message, userId);
         }
 
         // 3) Otherwise treat as general query (policy/LLM)
@@ -149,10 +142,37 @@ public class QueryService {
                 .flatMapMany(Flux::just);
     }
 
+    private Flux<String> handleTicketStatusExport(String userId) {
+
+        if (userId == null || userId.isBlank()) {
+            return Flux.just("Please login to download ticket status report.");
+        }
+
+        return Mono.fromCallable(() -> ticketExportService.exportTicketStatusExcel(userId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(fileName -> {
+
+                    String url = "/api/v1/files/" + fileName;
+
+                    // Return response with attachment metadata
+                    // (if you still return Flux<String>, then return JSON string)
+                    return Flux.just("""
+                        {
+                          "message": "📄 Ticket status report generated. Click download icon.",
+                          "attachment": {
+                            "fileName": "%s",
+                            "fileType": "EXCEL",
+                            "url": "%s"
+                          }
+                        }
+                        """.formatted(fileName, url));
+                });
+    }
+
     /* ============================================================
        TICKET UPDATE
        ============================================================ */
-    private Flux<String> handleTicketUpdate(String message, String userId) {
+    private Flux<String> handleTicketUpdate1(String message, String userId) {
 
         if (userId == null || userId.isBlank()) {
             return Flux.just("Please login to update ticket.");
@@ -195,6 +215,96 @@ public class QueryService {
                             .thenMany(Flux.just("✅ Ticket updated successfully: " + ticketId));
                 });
     }
+
+    private Flux<String> handleTicketUpdate(String message, String userId) {
+
+        if (userId == null || userId.isBlank()) {
+            return Flux.just("Please login to update ticket.");
+        }
+
+        if (message == null || message.isBlank()) {
+            return Flux.just("Please type your update request.");
+        }
+
+        // 1) Resolve ticket id (from message OR context)
+        UUID extractedTicketId = extractTicketId(message);
+
+        UUID resolvedTicketId =
+                extractedTicketId != null
+                        ? extractedTicketId
+                        : lastTicketContext.get(userId);
+
+        if (resolvedTicketId == null) {
+            return Flux.just("Please provide Ticket ID (UUID). Example: update ticket <uuid> status ACTIVE because testing");
+        }
+
+        // store context so next messages like "reason is ..." works
+        lastTicketContext.put(userId, resolvedTicketId);
+
+        final UUID ticketId = resolvedTicketId;
+
+        // 2) Extract fields
+        String newReason = extractReason(message);          // can be null
+        String newStatus = extractTicketStatus(message);    // can be null
+
+        // If neither status nor reason provided -> ask user
+        if ((newReason == null || newReason.isBlank()) && (newStatus == null || newStatus.isBlank())) {
+            return Flux.just("""
+                What would you like to update?
+                Examples:
+                - update ticket %s status ACTIVE
+                - update ticket %s because system issue
+                """.formatted(ticketId, ticketId));
+        }
+
+        // 3) Update ticket
+        return Mono.fromCallable(() -> leaveTicketRepository.findById(ticketId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(optional -> {
+
+                    if (optional.isEmpty()) {
+                        return Flux.just("❌ Ticket not found: " + ticketId);
+                    }
+
+                    Ticket ticket = optional.get();
+
+                    // authorization check
+                    if (!userId.equals(ticket.getEmployeeId())) {
+                        return Flux.just("❌ You are not authorized to update this ticket.");
+                    }
+
+                    // approved ticket cannot be updated
+                    if ("APPROVED".equalsIgnoreCase(ticket.getStatus())) {
+                        return Flux.just("❌ Approved ticket cannot be updated.");
+                    }
+
+                    // Apply updates
+                    boolean updated = false;
+
+                    if (newReason != null && !newReason.isBlank()) {
+                        String oldDesc = ticket.getDescription() == null ? "" : ticket.getDescription();
+                        ticket.setDescription(oldDesc + (oldDesc.isBlank() ? "" : " | ") + "UpdatedReason=" + newReason.trim());
+                        updated = true;
+                    }
+
+                    if (newStatus != null && !newStatus.isBlank()) {
+                        ticket.setStatus(newStatus.trim().toUpperCase());
+                        updated = true;
+                    }
+
+                    if (!updated) {
+                        return Flux.just("⚠️ Nothing to update for ticket: " + ticketId);
+                    }
+
+                    ticket.setUpdatedAt(LocalDateTime.now());
+
+                    return Mono.fromCallable(() -> leaveTicketRepository.save(ticket))
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .thenMany(Flux.just(buildTicketUpdateSuccessMessage(ticketId, newStatus, newReason)));
+                });
+    }
+
+
 
     /* ============================================================
        TICKET DELETE
@@ -859,6 +969,35 @@ public class QueryService {
         return Flux.fromArray(tokens)
                 .delayElements(Duration.ofMillis(30 + new Random().nextInt(40)))// typing effect
                 .map(token -> token + " ");
+    }
+
+    private String extractTicketStatus(String message) {
+        if (message == null) return null;
+
+        String m = message.toUpperCase();
+
+        if (m.contains("ACTIVE")) return "ACTIVE";
+        if (m.contains("INACTIVE")) return "INACTIVE";
+        if (m.contains("CLOSED")) return "CLOSED";
+        if (m.contains("OPEN")) return "OPEN";
+        if (m.contains("CREATED")) return "CREATED";
+
+        return null;
+    }
+
+    private String buildTicketUpdateSuccessMessage(UUID ticketId, String newStatus, String newReason) {
+
+        StringBuilder sb = new StringBuilder("✅ Ticket updated successfully: " + ticketId);
+
+        if (newStatus != null && !newStatus.isBlank()) {
+            sb.append("\nStatus: ").append(newStatus.toUpperCase());
+        }
+
+        if (newReason != null && !newReason.isBlank()) {
+            sb.append("\nReason: ").append(newReason.trim());
+        }
+
+        return sb.toString();
     }
 
 

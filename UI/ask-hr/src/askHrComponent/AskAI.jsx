@@ -9,6 +9,9 @@ import sendSound from "../sounds/send.mp3";
 import receiveSound from "../sounds/whatsappSend.mp3";
 import AudioButton from "../AudioToText/AudioButton";
 import SuggestionChips from "../Suggestions/SuggestionChips";
+import DownloadAttachmentButton from "../downlaodAttachment/DownloadAttachmentButton";
+import { parseAIResponse } from "../utils/aiResponseParser";
+
 function AskAI({ user }) {
 /* ================== STATE ================== */
 const [chatHistory, setChatHistory] = useState({});
@@ -250,15 +253,23 @@ const { value, done } = await reader.read();
 if (done) break;
 
 aiText += decoder.decode(value, { stream: true });
-
+const parsed = parseAIResponse(aiText);
 setChat((prev) => {
-const updated = [...prev];
-if (updated[updated.length - 1]?.role === "ai") {
-updated[updated.length - 1].text = aiText;
-} else {
-updated.push({ role: "ai", text: aiText, time: new Date().toLocaleTimeString() });
-}
-return updated;
+  const updated = [...prev];
+
+  if (updated[updated.length - 1]?.role === "ai") {
+    updated[updated.length - 1].text = parsed.message;
+    updated[updated.length - 1].attachment = parsed.attachment;
+  } else {
+    updated.push({
+      role: "ai",
+      text: parsed.message,
+      time: new Date().toLocaleTimeString(),
+      attachment: parsed.attachment,
+    });
+  }
+
+  return updated;
 });
 }
 
@@ -470,14 +481,19 @@ return (
 ) : (
 <div className="chat-body">
 {chat.map((msg, i) => (
-<div
-key={i}
-className={`chat-bubble ${msg.role} ${msg.failed ? "retry" : ""}`}
-onClick={() => msg.failed && retryMessage(msg.originalMessage)}
->{parse(DOMPurify.sanitize(msg.text))}
-{/* {msg.text} */}
-<div className="timestamp">{msg.time}</div>
-</div>
+  <div
+    key={i}
+    className={`chat-bubble ${msg.role} ${msg.failed ? "retry" : ""}`}
+  >
+    {parse(DOMPurify.sanitize(msg.text))}
+
+    {/* download icon */}
+    {msg.role === "ai" && msg.attachment && (
+      <DownloadAttachmentButton attachment={msg.attachment} />
+    )}
+
+    <div className="timestamp">{msg.time}</div>
+  </div>
 ))}
 {loading && (
 <div className="chat-bubble ai">

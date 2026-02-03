@@ -57,8 +57,12 @@ public class IntentDetector {
     public static boolean isLeaveCreationRequest(String message) {
         if (message == null || message.isBlank()) return false;
 
-        String m = FuzzyTextUtil.normalize(message);
+        if (isLeavePolicyQuery(message)) return false;
 
+        String m = FuzzyTextUtil.normalize(message);
+        if (isLeavePolicyQuery(message) || m.contains("leave policy") || m.contains("policy")) {
+            return false;
+        }
         // --- 1) Detect leave keyword
         boolean hasLeave =
                 m.contains("leave") ||
@@ -89,7 +93,7 @@ public class IntentDetector {
         return hasAction || hasLeaveType || hasDate || hasDuration;
     }
 
-    public static boolean isLeavePolicySummary(String message) {
+    public static boolean isLeavePolicyQuery(String message) {
         if (message == null || message.isBlank()) return false;
 
         String m = FuzzyTextUtil.normalize(message);
@@ -158,7 +162,7 @@ public class IntentDetector {
         return hasTicket && hasUpdate;
     }
 
-    public static boolean isNewIntent(String message) {
+    public static boolean isNewIntent1(String message) {
         if (message == null) return false;
 
         String m = message.toLowerCase().trim();
@@ -176,6 +180,18 @@ public class IntentDetector {
                 || isTicketStatusRequest(m)
                 || isTicketUpdateRequest(m)
                 || isTicketDeleteRequest(m);
+    }
+
+    public static boolean isNewIntent(String message) {
+        if (message == null || message.isBlank()) return false;
+
+        String m = FuzzyTextUtil.normalize(message);
+
+        // policy questions should override leave flow
+        if (isLeavePolicyQuery(message) || m.contains("policy")) return true;
+
+        // ticket actions override leave flow
+        return isTicketStatusRequest(message) || isTicketUpdateRequest(message) || isTicketDeleteRequest(message);
     }
 
     public static boolean isCancel(String message) {
@@ -208,5 +224,17 @@ public class IntentDetector {
             return Integer.parseInt(m.group(1));
         }
         return null;
+    }
+
+    public static boolean isTicketStatusExportRequest(String message) {
+        if (message == null || message.isBlank()) return false;
+        String m = FuzzyTextUtil.normalize(message);
+
+        return m.contains("download status")
+                || m.contains("status file")
+                || m.contains("export status")
+                || m.contains("ticket report")
+                || m.contains("ticket status excel")
+                || m.contains("ticket status file");
     }
 }
