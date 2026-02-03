@@ -105,7 +105,7 @@ public class IntentDetector {
        Ticket intents (more natural)
        ============================= */
 
-    public static boolean isTicketStatusRequest(String message) {
+    public static boolean isTicketStatusRequest_backup(String message) {
         if (message == null || message.isBlank()) return false;
 
         String m = FuzzyTextUtil.normalize(message);
@@ -115,6 +115,15 @@ public class IntentDetector {
         boolean hasStatus = m.contains("status") || m.contains("check") || m.contains("track");
 
         return hasTicket && hasStatus;
+    }
+
+    public static boolean isTicketStatusRequest(String message) {
+        if (message == null) return false;
+
+        String normalized = message.toLowerCase();
+
+        return normalized.contains("status")
+                && normalized.matches(".*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*");
     }
 
     public static boolean isTicketDeleteRequest(String message) {

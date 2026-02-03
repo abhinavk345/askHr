@@ -1,23 +1,30 @@
 package com.intech.ai.service;
 
+import com.intech.ai.caches.SemanticCacheEntry;
+import com.intech.ai.caches.SemanticResponseCache;
 import com.intech.ai.enums.LeaveStep;
 import com.intech.ai.modal.LeaveFlowState;
 import com.intech.ai.modal.Ticket;
 import com.intech.ai.repository.TicketRepository;
+import com.intech.ai.caches.LlmResponseCache;
+import com.intech.ai.utility.CosineSimilarityUtil;
 import com.intech.ai.utility.FuzzyTextUtil;
 import com.intech.ai.utility.IntentDetector;
+import com.intech.ai.utility.PromptNormalizer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -29,9 +36,12 @@ public class QueryService {
 
     private final TicketRepository leaveTicketRepository;
     private final AiChatService aiChatService; // your LLM service
-
+    private final LlmResponseCache llmCache;
+    private final SemanticResponseCache semanticCache;
+    private final EmbeddingService embeddingService;
     // store conversation state per user
     private final Map<String, LeaveFlowState> leaveFlow = new ConcurrentHashMap<>();
+    private final Map<String, UUID> lastTicketContext = new ConcurrentHashMap<>();
 
     /* ============================================================
        MAIN ENTRY
@@ -96,7 +106,47 @@ public class QueryService {
         }
 
         // 3) Otherwise treat as general query (policy/LLM)
-        return aiChatService.askStream(message);
+        //-- return aiChatService.askStream(message);
+
+        // Normalize message for cache key
+        String normalizedPrompt = PromptNormalizer.normalize(message);
+
+// ✅ CACHE HIT → DO NOT CALL LLM
+        if (llmCache.contains(normalizedPrompt)) {
+            String cached = llmCache.get(normalizedPrompt);
+            return streamLikeLlm(cached);
+        }
+
+        if (!semanticCache.isEmpty()) {
+            List<Float> queryEmbedding = embeddingService.embed(normalizedPrompt);
+            for (var entry : semanticCache.getAll()) {
+                double similarity = CosineSimilarityUtil.similarity(
+                        queryEmbedding,
+                        entry.getEmbedding()
+                );
+                // 🔥 Threshold (tune between 0.80 – 0.90)
+                if (similarity >= 0.85) {
+                    return streamLikeLlm(entry.getResponse());
+                }
+            }
+        }
+
+// ❌ CACHE MISS → CALL LLM
+        return aiChatService.askStream(message)
+                .collectList()
+                .map(parts -> String.join("", parts))
+//                .doOnNext(response -> {
+//                    if (response != null && !response.isBlank()) {
+//                        llmCache.put(normalizedPrompt, response);
+//                    }
+//                })
+                .doOnNext(response -> {
+                    llmCache.put(normalizedPrompt, response);
+
+                    List<Float> embedding = embeddingService.embed(normalizedPrompt);
+                    semanticCache.put(new SemanticCacheEntry(embedding, response));
+                })
+                .flatMapMany(Flux::just);
     }
 
     /* ============================================================
@@ -187,7 +237,7 @@ public class QueryService {
     /* ============================================================
        TICKET STATUS
        ============================================================ */
-    private Flux<String> handleTicketStatus(String message, String userId) {
+    private Flux<String> handleTicketStatus1(String message, String userId) {
 
         if (userId == null || userId.isBlank()) {
             return Flux.just("Please login to check ticket status.");
@@ -216,293 +266,84 @@ public class QueryService {
                 });
     }
 
+    private Flux<String> handleTicketStatus(String message, String userId) {
+
+        if (userId == null || userId.isBlank()) {
+            return Flux.just("Please login to check ticket status.");
+        }
+
+        UUID extractedTicketId = extractTicketId(message);
+
+        UUID resolvedTicketId =
+                extractedTicketId != null
+                        ? extractedTicketId
+                        : lastTicketContext.get(userId);
+
+        if (resolvedTicketId == null) {
+            return Flux.just("Please provide Ticket ID (UUID). Example: status of ticket <uuid>");
+        }
+
+        final UUID ticketId = resolvedTicketId; // ✅ FIX
+
+        return Mono.fromCallable(() -> leaveTicketRepository.findById(ticketId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(optional -> {
+
+                    if (optional.isEmpty()) {
+                        return Flux.just("❌ Ticket not found: " + ticketId);
+                    }
+
+                    Ticket ticket = optional.get();
+
+                    if (!userId.equals(ticket.getEmployeeId())) {
+                        return Flux.just("❌ You are not authorized to view this ticket.");
+                    }
+
+                    // ✅ Store context only after validation
+                    lastTicketContext.put(userId, ticketId);
+
+                    return Flux.just(
+                            "📄 Ticket Status\n" +
+                                    "Ticket ID: " + ticket.getId() + "\n" +
+                                    "Status: " + ticket.getStatus()
+                    );
+                });
+    }
+
     /* ============================================================
        LEAVE FLOW HANDLER
        ============================================================ */
-    private Flux<String> handleLeaveCreation1(String message, String userId) {
-
-        if (userId == null || userId.isBlank()) {
-            return Flux.just("Please login to apply leave.");
-        }
-
-        LeaveFlowState state = leaveFlow.computeIfAbsent(userId, k -> {
-            LeaveFlowState s = new LeaveFlowState();
-            s.setStep(LeaveStep.TYPE);
-            return s;
-        });
-
-        String lower = FuzzyTextUtil.normalize(message);
-
-        // DEBUG (keep for 1-2 days)
-        System.out.println("LEAVE_FLOW_DEBUG userId=" + userId
-                + " step=" + state.getStep()
-                + " leaveType=" + state.getLeaveType()
-                + " from=" + state.getFromDate()
-                + " to=" + state.getToDate()
-                + " reason=" + state.getReason()
-                + " msg=" + message);
-
-        // Cancel support
-        if (lower.contains("cancel") || FuzzyTextUtil.fuzzyTokenMatch(lower, "cancel", 2)) {
-            leaveFlow.remove(userId);
-            return Flux.just("❌ Leave request cancelled.");
-        }
-
-        // ------------------------------------------------------------
-        // GLOBAL EXTRACTION (works at any step)
-        // ------------------------------------------------------------
-        // If user typed leave type anytime
-        if (state.getLeaveType() == null) {
-            String extractedType = parseLeaveType(message);
-            if (extractedType != null) {
-                state.setLeaveType(extractedType);
-            }
-        }
-
-        // If user typed date anytime
-        LocalDate possibleDate = parseDate(message);
-        if (possibleDate != null && state.getFromDate() == null) {
-            state.setFromDate(possibleDate);
-        }
-        if (possibleDate != null && state.getToDate() == null && state.getFromDate() != null) {
-            // default one-day leave
-            state.setToDate(state.getFromDate());
-        }
-
-        // If user typed reason anytime
-        if (state.getReason() == null) {
-            String possibleReason = extractReason(message);
-            if (possibleReason != null && !possibleReason.isBlank()) {
-                state.setReason(possibleReason);
-            }
-        }
-
-        // ------------------------------------------------------------
-        // STEP RECOVERY (very important)
-        // If step is wrong / skipped, fix it based on missing fields
-        // ------------------------------------------------------------
-        if (state.getStep() == null) {
-            state.setStep(LeaveStep.TYPE);
-        }
-
-        // If user already has leaveType but step is still LEAVE_TYPE, move forward
-        if ("LEAVE_TYPE".equals(state.getStep())) {
-            state.setStep(state.getFromDate() == null ? LeaveStep.FROM_DATE : LeaveStep.REASON);
-        }
-
-        // ------------------------------------------------------------
-        // TYPE (start)
-        // ------------------------------------------------------------
-        if ("TYPE".equals(state.getStep())) {
-
-            // if all details already present -> confirm / create
-            if (state.getLeaveType() != null
-                    && state.getFromDate() != null
-                    && state.getToDate() != null
-                    && state.getReason() != null) {
-
-                state.setStep(LeaveStep.CONFIRM);
-
-                if (isConfirmMessage(message)) {
-                    return createLeaveTicketAndReset(state, userId);
-                }
-
-                return Flux.just("""
-                Please confirm leave request:
-                Leave Type: %s
-                From: %s
-                To: %s
-                Reason: %s
-
-                Reply: CONFIRM to submit OR CANCEL
-                """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
-            }
-
-            // If leave type missing -> show menu
-            if (state.getLeaveType() == null) {
-                state.setStep(LeaveStep.LEAVE_TYPE);
-                return Flux.just("""
-                Please select Leave Type:</br>
-                1. Need Based Leave</br>
-                2. Planned Leave</br>
-                3. Paternity Leave</br>
-                4. Maternity Leave</br>
-                5. Project Leave</br>
-                6. Leave Without Pay</br>
-                7. Election Leave</br>
-                8. Birthday Leave</br>
-                Reply with number or leave type name.
-                """);
-            }
-
-            // If leaveType already exists, go to date
-            state.setStep(LeaveStep.FROM_DATE);
-            return Flux.just("Enter From Date (yyyy-MM-dd) OR type 'today' / 'tomorrow'");
-        }
-
-        // ------------------------------------------------------------
-        // LEAVE_TYPE
-        // ------------------------------------------------------------
-        if ("LEAVE_TYPE".equals(state.getStep())) {
-
-            // If already captured globally
-            if (state.getLeaveType() == null) {
-                String type = parseLeaveType(message);
-                if (type == null) {
-                    return Flux.just("Invalid leave type. Please reply with 1-8 or leave name.");
-                }
-                state.setLeaveType(type);
-            }
-
-            // If user also gave date, jump ahead
-            if (state.getFromDate() != null) {
-                state.setStep(LeaveStep.REASON);
-                return Flux.just("Got it 👍 Leave for " + state.getFromDate() + ". Please enter reason for leave:");
-            }
-
-            state.setStep(LeaveStep.FROM_DATE);
-            return Flux.just("Enter From Date (yyyy-MM-dd) OR type 'today' / 'tomorrow'");
-        }
-
-        // ------------------------------------------------------------
-        // FROM_DATE
-        // ------------------------------------------------------------
-        if ("FROM_DATE".equals(state.getStep())) {
-
-            if (state.getFromDate() == null) {
-                LocalDate from = parseDate(message);
-                if (from == null) {
-                    return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'today' / 'tomorrow'");
-                }
-                state.setFromDate(from);
-                // default to one day
-                if (state.getToDate() == null) state.setToDate(from);
-            }
-
-            state.setStep(LeaveStep.TO_DATE);
-            return Flux.just("Enter To Date (yyyy-MM-dd) OR type 'same'");
-        }
-
-        // ------------------------------------------------------------
-        // TO_DATE
-        // ------------------------------------------------------------
-        if ("TO_DATE".equals(state.getStep())) {
-
-            if (state.getToDate() == null) {
-                LocalDate to = lower.equals("same") || FuzzyTextUtil.fuzzyTokenMatch(lower, "same", 1)
-                        ? state.getFromDate()
-                        : parseDate(message);
-
-                if (to == null) {
-                    return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'same'");
-                }
-                state.setToDate(to);
-            }
-
-            // validate
-            if (state.getToDate() != null && state.getFromDate() != null
-                    && state.getToDate().isBefore(state.getFromDate())) {
-                state.setToDate(null);
-                return Flux.just("❌ To Date cannot be earlier than From Date. Please enter valid To Date (yyyy-MM-dd) or type 'same'.");
-            }
-
-            state.setStep(LeaveStep.REASON);
-            return Flux.just("Enter reason for leave:");
-        }
-
-        // ------------------------------------------------------------
-        // REASON
-        // ------------------------------------------------------------
-        if ("REASON".equals(state.getStep())) {
-
-            if (state.getReason() == null) {
-                String reason = message.trim();
-                if (reason.isBlank()) {
-                    return Flux.just("Please enter a valid reason.");
-                }
-                state.setReason(reason);
-            }
-
-            state.setStep(LeaveStep.CONFIRM);
-            return Flux.just("""
-            Please confirm leave request:
-            Leave Type: %s
-            From: %s
-            To: %s
-            Reason: %s
-
-            Reply: CONFIRM to submit OR CANCEL
-            """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
-        }
-
-        // ------------------------------------------------------------
-        // CONFIRM
-        // ------------------------------------------------------------
-        if ("CONFIRM".equals(state.getStep())) {
-
-            if (!isConfirmMessage(message)) {
-                return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
-            }
-
-            return createLeaveTicketAndReset(state, userId);
-        }
-
-        // ------------------------------------------------------------
-        // LAST RESCUE (never break the user)
-        // ------------------------------------------------------------
-        if (state.getLeaveType() == null) {
-            state.setStep(LeaveStep.LEAVE_TYPE);
-            return Flux.just("Please select leave type (Need Based / Planned / etc).");
-        }
-        if (state.getFromDate() == null) {
-            state.setStep(LeaveStep.FROM_DATE);
-            return Flux.just("Enter From Date (yyyy-MM-dd) OR today/tomorrow");
-        }
-        if (state.getToDate() == null) {
-            state.setStep(LeaveStep.TO_DATE);
-            return Flux.just("Enter To Date (yyyy-MM-dd) OR same");
-        }
-        if (state.getReason() == null) {
-            state.setStep(LeaveStep.REASON);
-            return Flux.just("Enter reason for leave:");
-        }
-
-        state.setStep(LeaveStep.CONFIRM);
-        return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
-    }
-
     private Flux<String> handleLeaveCreation(String message, String userId) {
 
         if (userId == null || userId.isBlank()) {
             return Flux.just("Please login to apply leave.");
         }
 
+        if (message == null || message.isBlank()) {
+            return Flux.just("Please type your leave request.");
+        }
+
         LeaveFlowState state = leaveFlow.computeIfAbsent(userId, k -> {
             LeaveFlowState s = new LeaveFlowState();
             s.setStep(LeaveStep.TYPE);
             return s;
         });
 
-        String lower = FuzzyTextUtil.normalize(message);
+        String normalized = FuzzyTextUtil.normalize(message);
 
-        // DEBUG (keep for 1-2 days)
-        System.out.println("LEAVE_FLOW_DEBUG userId=" + userId
-                + " step=" + state.getStep()
-                + " leaveType=" + state.getLeaveType()
-                + " from=" + state.getFromDate()
-                + " to=" + state.getToDate()
-                + " reason=" + state.getReason()
-                + " msg=" + message);
-
-        // Cancel support
-        if (lower.contains("cancel") || FuzzyTextUtil.fuzzyTokenMatch(lower, "cancel", 2)) {
+        // 1) Cancel always wins
+        if (IntentDetector.isCancel(message)
+                || normalized.contains("cancel")
+                || FuzzyTextUtil.fuzzyTokenMatch(normalized, "cancel", 2)) {
             leaveFlow.remove(userId);
             return Flux.just("❌ Leave request cancelled.");
         }
 
         // ------------------------------------------------------------
-        // GLOBAL EXTRACTION (works at any step)
+        // GLOBAL EXTRACTION (works at ANY step)
         // ------------------------------------------------------------
+
+        // Leave Type extraction from sentence
         if (state.getLeaveType() == null) {
             String extractedType = parseLeaveType(message);
             if (extractedType != null) {
@@ -510,84 +351,72 @@ public class QueryService {
             }
         }
 
+        // Date extraction
         LocalDate possibleDate = parseDate(message);
         if (possibleDate != null) {
             if (state.getFromDate() == null) {
                 state.setFromDate(possibleDate);
             }
-        }
-
-        if (state.getReason() == null) {
-            String possibleReason = extractReason(message);
-            if (possibleReason != null && !possibleReason.isBlank()) {
-                state.setReason(possibleReason);
+            // if toDate not set, default to same day for now
+            if (state.getFromDate() != null && state.getToDate() == null) {
+                state.setToDate(state.getFromDate());
             }
         }
 
-        if (state.getFromDate() != null && state.getToDate() == null) {
+        // Duration extraction: "5 days" etc.
+        Integer durationDays = IntentDetector.extractDurationDays(message);
+        if (durationDays != null && durationDays > 1 && state.getFromDate() != null) {
+            state.setToDate(state.getFromDate().plusDays(durationDays - 1));
+        }
 
-            Integer durationDays = IntentDetector.extractDurationDays(message);
-
-            if (durationDays != null && durationDays > 1) {
-                state.setToDate(state.getFromDate().plusDays(durationDays - 1));
+        // Reason extraction (only if user explicitly provides reason-like phrase)
+        if (state.getReason() == null) {
+            String possibleReason = extractReason(message);
+            if (possibleReason != null && !possibleReason.isBlank()) {
+                state.setReason(possibleReason.trim());
             }
         }
 
         // ------------------------------------------------------------
-        // STEP RECOVERY
+        // STEP RECOVERY (IMPORTANT)
         // ------------------------------------------------------------
         if (state.getStep() == null) {
             state.setStep(LeaveStep.TYPE);
         }
 
-        // If user already has leaveType but step is still TYPE, move forward
+        // If leave type already detected but still at TYPE, move to date
         if (state.getStep() == LeaveStep.TYPE && state.getLeaveType() != null) {
             state.setStep(state.getFromDate() == null ? LeaveStep.FROM_DATE : LeaveStep.REASON);
         }
 
+        // If user already has leaveType but stuck at LEAVE_TYPE, move forward
+        if (state.getStep() == LeaveStep.LEAVE_TYPE && state.getLeaveType() != null) {
+            state.setStep(state.getFromDate() == null ? LeaveStep.FROM_DATE : LeaveStep.REASON);
+        }
+
         // ------------------------------------------------------------
-        // TYPE
+        // TYPE (start)
         // ------------------------------------------------------------
         if (state.getStep() == LeaveStep.TYPE) {
 
-            if (state.getLeaveType() != null
-                    && state.getFromDate() != null
-                    && state.getToDate() != null
-                    && state.getReason() != null) {
-
-                state.setStep(LeaveStep.CONFIRM);
-
-                if (isConfirmMessage(message)) {
-                    return createLeaveTicketAndReset(state, userId);
-                }
-
-                return Flux.just("""
-                Please confirm leave request:
-                Leave Type: %s
-                From: %s
-                To: %s
-                Reason: %s
-
-                Reply: CONFIRM to submit OR CANCEL
-                """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
-            }
-
+            // If leave type missing -> show menu
             if (state.getLeaveType() == null) {
                 state.setStep(LeaveStep.LEAVE_TYPE);
                 return Flux.just("""
-                Please select Leave Type:</br>
-                1. Need Based Leave</br>
-                2. Planned Leave</br>
-                3. Paternity Leave</br>
-                4. Maternity Leave</br>
-                5. Project Leave</br>
-                6. Leave Without Pay</br>
-                7. Election Leave</br>
-                8. Birthday Leave</br>
-                Reply with number or leave type name.
-                """);
+                    Please select Leave Type:</br>
+                    1. Need Based Leave</br>
+                    2. Planned Leave</br>
+                    3. Paternity Leave</br>
+                    4. Maternity Leave</br>
+                    5. Project Leave</br>
+                    6. Leave Without Pay</br>
+                    7. Election Leave</br>
+                    8. Birthday Leave</br>
+                    Reply with number or leave type name.
+                    """);
             }
 
+            // If leaveType already exists, go to date
             state.setStep(LeaveStep.FROM_DATE);
             return Flux.just("Enter From Date (yyyy-MM-dd) OR type 'today' / 'tomorrow'");
         }
@@ -605,11 +434,6 @@ public class QueryService {
                 state.setLeaveType(type);
             }
 
-            if (state.getFromDate() != null) {
-                state.setStep(LeaveStep.REASON);
-                return Flux.just("Got it 👍 Leave for " + state.getFromDate() + ". Please enter reason for leave:");
-            }
-
             state.setStep(LeaveStep.FROM_DATE);
             return Flux.just("Enter From Date (yyyy-MM-dd) OR type 'today' / 'tomorrow'");
         }
@@ -625,11 +449,15 @@ public class QueryService {
                     return Flux.just("Invalid date. Please enter yyyy-MM-dd or 'today' / 'tomorrow'");
                 }
                 state.setFromDate(from);
-                if (state.getToDate() == null) state.setToDate(from);
+
+                // default to one day
+                if (state.getToDate() == null) {
+                    state.setToDate(from);
+                }
             }
 
             state.setStep(LeaveStep.TO_DATE);
-            return Flux.just("Enter To Date (yyyy-MM-dd) OR type 'same'");
+            return Flux.just("Enter To Date (yyyy-MM-dd) OR type 'same' OR duration like '5 days'");
         }
 
         // ------------------------------------------------------------
@@ -639,27 +467,22 @@ public class QueryService {
 
             if (state.getToDate() == null) {
 
-                Integer durationDays = IntentDetector.extractDurationDays(message);
+                Integer d = IntentDetector.extractDurationDays(message);
 
                 LocalDate to;
-                if (durationDays != null && durationDays > 1) {
-                    to = state.getFromDate().plusDays(durationDays - 1);
-                } else if (lower.equals("same") || FuzzyTextUtil.fuzzyTokenMatch(lower, "same", 1)) {
+                if (d != null && d > 1) {
+                    to = state.getFromDate().plusDays(d - 1);
+                } else if (normalized.equals("same") || FuzzyTextUtil.fuzzyTokenMatch(normalized, "same", 1)) {
                     to = state.getFromDate();
                 } else {
                     to = parseDate(message);
                 }
 
                 if (to == null) {
-                    return Flux.just("Invalid date. Please enter yyyy-MM-dd, 'same', or duration like '5 days'");
+                    return Flux.just("Invalid date. Please enter yyyy-MM-dd or type 'same' or '5 days'.");
                 }
 
                 state.setToDate(to);
-            }
-
-            if (state.getToDate().isBefore(state.getFromDate())) {
-                state.setToDate(null);
-                return Flux.just("❌ To Date cannot be earlier than From Date. Please enter valid To Date (yyyy-MM-dd) or type 'same'.");
             }
 
             state.setStep(LeaveStep.REASON);
@@ -680,29 +503,16 @@ public class QueryService {
             }
 
             state.setStep(LeaveStep.CONFIRM);
+
             return Flux.just("""
-            Please confirm leave request:
-            Leave Type: %s
-            From: %s
-            To: %s
-            Reason: %s
+                Please confirm leave request:
+                Leave Type: %s
+                From: %s
+                To: %s
+                Reason: %s
 
-            Reply: CONFIRM to submit OR CANCEL
-            """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
-        }
-
-        if ("Paternity Leave".equalsIgnoreCase(state.getLeaveType())
-                && state.getFromDate() != null
-                && state.getToDate() != null
-                && state.getFromDate().equals(state.getToDate())) {
-
-            state.setToDate(null);
-            state.setStep(LeaveStep.TO_DATE);
-
-            return Flux.just(
-                    "❗ Paternity leave is usually taken for multiple days. " +
-                            "Please specify duration (e.g. 5 days) or an end date."
-            );
+                Reply: CONFIRM to submit OR CANCEL
+                """.formatted(state.getLeaveType(), state.getFromDate(), state.getToDate(), state.getReason()));
         }
 
         // ------------------------------------------------------------
@@ -718,7 +528,7 @@ public class QueryService {
         }
 
         // ------------------------------------------------------------
-        // LAST RESCUE
+        // LAST RESCUE (never break)
         // ------------------------------------------------------------
         if (state.getLeaveType() == null) {
             state.setStep(LeaveStep.LEAVE_TYPE);
@@ -730,7 +540,7 @@ public class QueryService {
         }
         if (state.getToDate() == null) {
             state.setStep(LeaveStep.TO_DATE);
-            return Flux.just("Enter To Date (yyyy-MM-dd) OR same");
+            return Flux.just("Enter To Date (yyyy-MM-dd) OR same / '5 days'");
         }
         if (state.getReason() == null) {
             state.setStep(LeaveStep.REASON);
@@ -740,6 +550,7 @@ public class QueryService {
         state.setStep(LeaveStep.CONFIRM);
         return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
     }
+
     /* ============================================================
        Ticket creation helper
        ============================================================ */
@@ -766,9 +577,9 @@ public class QueryService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(saved ->
                         Flux.just("✅ Leave ticket created successfully for Ticket ID: " + saved.getId()
-                                        +"Leave Type: "+state.getLeaveType()
-                                        +"From: "+state.getFromDate()
-                                        +"To: "+ state.getToDate()
+                                        +" Leave Type: "+state.getLeaveType()
+                                        +" From: "+state.getFromDate()
+                                        +" To: "+ state.getToDate()
                         ));
 
     }
@@ -819,7 +630,7 @@ public class QueryService {
 
         String m = FuzzyTextUtil.normalize(message);
 
-        // direct mappings
+        // 1) number mapping (highest priority if user selects from menu)
         if (m.equals("1")) return "Need Based Leave";
         if (m.equals("2")) return "Planned Leave";
         if (m.equals("3")) return "Paternity Leave";
@@ -829,33 +640,60 @@ public class QueryService {
         if (m.equals("7")) return "Election Leave";
         if (m.equals("8")) return "Birthday Leave";
 
-        // fuzzy synonyms
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("need based", "need base", "needbased", "nbl"), 2))
-            return "Need Based Leave";
-
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("planned", "plan leave", "pl"), 2))
+        // 2) strict keyword match (before fuzzy!)
+        if (m.contains("paternity") || m.contains("father leave") || m.contains("dad leave")) {
+            return "Paternity Leave";
+        }
+        if (m.contains("maternity") || m.contains("mother leave")) {
+            return "Maternity Leave";
+        }
+        if (m.contains("planned") || m.contains("plan leave")) {
             return "Planned Leave";
+        }
+        if (m.contains("need based") || m.contains("needbase") || m.contains("nbl")) {
+            return "Need Based Leave";
+        }
+        if (m.contains("project")) {
+            return "Project Leave";
+        }
+        if (m.contains("without pay") || m.contains("lwp")) {
+            return "Leave Without Pay";
+        }
+        if (m.contains("election")) {
+            return "Election Leave";
+        }
+        if (m.contains("birthday")) {
+            return "Birthday Leave";
+        }
 
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("paternity", "father leave"), 2))
+        // 3) fuzzy match ONLY if above didn't match
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("paternity", "father leave"), 1))
             return "Paternity Leave";
 
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("maternity", "mother leave"), 2))
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("maternity", "mother leave"), 1))
             return "Maternity Leave";
 
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("project"), 2))
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("planned", "plan leave", "pl"), 1))
+            return "Planned Leave";
+
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("need based", "need base", "needbased", "nbl"), 1))
+            return "Need Based Leave";
+
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("project"), 1))
             return "Project Leave";
 
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("without pay", "lwp"), 2))
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("without pay", "lwp"), 1))
             return "Leave Without Pay";
 
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("election"), 2))
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("election"), 1))
             return "Election Leave";
 
-        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("birthday"), 2))
+        if (FuzzyTextUtil.fuzzyContainsAny(m, List.of("birthday"), 1))
             return "Birthday Leave";
 
         return null;
     }
+
 
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
             DateTimeFormatter.ISO_LOCAL_DATE,                    // yyyy-MM-dd
@@ -997,13 +835,31 @@ public class QueryService {
     private UUID extractTicketId(String message) {
         if (message == null) return null;
 
-        var matcher = java.util.regex.Pattern
-                .compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-                .matcher(message);
+        Pattern pattern = Pattern.compile(
+                "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+        );
 
+        Matcher matcher = pattern.matcher(message);
         if (matcher.find()) {
             return UUID.fromString(matcher.group());
         }
         return null;
     }
+
+
+    private Flux<String> streamLikeLlm(String fullResponse) {
+
+        if (fullResponse == null || fullResponse.isBlank()) {
+            return Flux.empty();
+        }
+
+        // split into small chunks (words feel more natural than chars)
+        String[] tokens = fullResponse.split(" ");
+
+        return Flux.fromArray(tokens)
+                .delayElements(Duration.ofMillis(30 + new Random().nextInt(40)))// typing effect
+                .map(token -> token + " ");
+    }
+
+
 }
