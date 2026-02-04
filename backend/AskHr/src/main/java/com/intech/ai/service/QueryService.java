@@ -3,6 +3,7 @@ package com.intech.ai.service;
 import com.intech.ai.caches.SemanticCacheEntry;
 import com.intech.ai.caches.SemanticResponseCache;
 import com.intech.ai.enums.LeaveStep;
+import com.intech.ai.enums.UserIntent;
 import com.intech.ai.modal.LeaveFlowState;
 import com.intech.ai.modal.Ticket;
 import com.intech.ai.repository.TicketRepository;
@@ -30,6 +31,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.intech.ai.enums.UserIntent.*;
+
 @Service
 @RequiredArgsConstructor
 public class QueryService {
@@ -40,7 +43,7 @@ public class QueryService {
     private final SemanticResponseCache semanticCache;
     private final EmbeddingService embeddingService;
     private final TicketExportService ticketExportService;
-
+    private final IntentClassificationService intentService;
     // store conversation state per user
     private final Map<String, LeaveFlowState> leaveFlow = new ConcurrentHashMap<>();
     private final Map<String, UUID> lastTicketContext = new ConcurrentHashMap<>();
@@ -48,7 +51,7 @@ public class QueryService {
     /* ============================================================
        MAIN ENTRY
        ============================================================ */
-    public Flux<String> handleUserQuery(String message, String userId) {
+    public Flux<String> handleUserQuery1(String message, String userId) {
 
         if (userId != null && leaveFlow.containsKey(userId)) {
 
@@ -143,6 +146,43 @@ public class QueryService {
                     semanticCache.put(new SemanticCacheEntry(embedding, response));
                 })
                 .flatMapMany(Flux::just);
+    }
+
+    public Flux<String> handleUserQuery(String message, String userId) {
+
+        if (message == null || message.isBlank()) {
+            return Flux.just("Please type your query.");
+        }
+
+        // 1️⃣ If user is already in leave flow
+        if (userId != null && leaveFlow.containsKey(userId)) {
+
+            if (IntentDetector.isCancel(message)) {
+                leaveFlow.remove(userId);
+                return Flux.just("❌ Leave process cancelled. How else can I help?");
+            }
+
+            // If user continues the same leave conversation → stay in flow
+            if (!IntentDetector.isNewIntent(message)) {
+                return handleLeaveCreation(message, userId);
+            }
+
+            // User wants something else → reset flow
+            leaveFlow.remove(userId);
+        }
+
+        // 2️⃣ FAST intent detection (LLM, non-streaming)
+        UserIntent intent = intentService.detectIntentWithLLM(message);
+
+        // 3️⃣ Route based on intent
+        return switch (intent) {
+            case GREETING -> Flux.just("Hi 😊 How can I help you today?");
+            case LEAVE_CREATE -> handleLeaveCreation(message, userId);
+            case LEAVE_STATUS -> handleTicketStatus(message, userId);
+            case POLICY_QUERY -> answerPolicyWithCache(message);
+            case TICKET_UPDATE -> handleTicketUpdate(message, userId);
+            default -> handleGeneralChatWithCache(message);
+        };
     }
 
     private Flux<String> handleTicketStatusExport(String userId) {
@@ -426,7 +466,7 @@ public class QueryService {
     /* ============================================================
        LEAVE FLOW HANDLER
        ============================================================ */
-    private Flux<String> handleLeaveCreation(String message, String userId) {
+    private Flux<String> handleLeaveCreation1(String message, String userId) {
 
         if (userId == null || userId.isBlank()) {
             return Flux.just("Please login to apply leave.");
@@ -663,6 +703,145 @@ public class QueryService {
         state.setStep(LeaveStep.CONFIRM);
         return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
     }
+    private Flux<String> handleLeaveCreation(String message, String userId) {
+
+        if (userId == null || userId.isBlank()) {
+            return Flux.just("Please login to apply leave.");
+        }
+
+        if (message == null || message.isBlank()) {
+            return Flux.just("Please type your leave request.");
+        }
+
+        LeaveFlowState state = leaveFlow.computeIfAbsent(userId, k -> {
+            LeaveFlowState s = new LeaveFlowState();
+            s.setStep(LeaveStep.TYPE);
+            return s;
+        });
+
+        String normalized = FuzzyTextUtil.normalize(message);
+
+        // ------------------------------------------------------------
+        // 0️⃣ CANCEL always wins
+        // ------------------------------------------------------------
+        if (IntentDetector.isCancel(message)
+                || normalized.contains("cancel")
+                || FuzzyTextUtil.fuzzyTokenMatch(normalized, "cancel", 2)) {
+            leaveFlow.remove(userId);
+            return Flux.just("❌ Leave request cancelled. How else can I help?");
+        }
+
+        // ------------------------------------------------------------
+        // 1️⃣ GLOBAL SLOT EXTRACTION (order-free)
+        // ------------------------------------------------------------
+
+        // Leave Type
+        if (state.getLeaveType() == null) {
+            String extractedType = parseLeaveType(message);
+            if (extractedType != null) {
+                state.setLeaveType(extractedType);
+            }
+        }
+
+        // From date
+        LocalDate parsedDate = parseDate(message);
+        if (parsedDate != null && state.getFromDate() == null) {
+            state.setFromDate(parsedDate);
+            if (state.getToDate() == null) {
+                state.setToDate(parsedDate); // default single day
+            }
+        }
+
+        // Duration → To date
+        Integer durationDays = IntentDetector.extractDurationDays(message);
+        if (durationDays != null && durationDays > 1 && state.getFromDate() != null) {
+            state.setToDate(state.getFromDate().plusDays(durationDays - 1));
+        }
+
+        // Reason
+        if (state.getReason() == null) {
+            String possibleReason = extractReason(message);
+            if (possibleReason != null && !possibleReason.isBlank()) {
+                state.setReason(possibleReason.trim());
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 2️⃣ ⭐ SLOT-FIRST COMPLETENESS CHECK (KEY IMPROVEMENT)
+        // ------------------------------------------------------------
+        if (isLeaveComplete(state)) {
+            state.setStep(LeaveStep.CONFIRM);
+            return Flux.just(buildLeaveConfirmation(state));
+        }
+
+        // ------------------------------------------------------------
+        // 3️⃣ STEP RECOVERY (only for missing info)
+        // ------------------------------------------------------------
+        if (state.getLeaveType() == null) {
+            state.setStep(LeaveStep.LEAVE_TYPE);
+            return Flux.just("""
+            Please select Leave Type:</br>
+            1. Need Based Leave</br>
+            2. Planned Leave</br>
+            3. Paternity Leave</br>
+            4. Maternity Leave</br>
+            5. Project Leave</br>
+            6. Leave Without Pay</br>
+            7. Election Leave</br>
+            8. Birthday Leave</br>
+            Reply with number or leave type name.
+            """);
+        }
+
+        if (state.getFromDate() == null) {
+            state.setStep(LeaveStep.FROM_DATE);
+            return Flux.just("From which date do you want the leave? (today / tomorrow / yyyy-MM-dd)");
+        }
+
+        if (state.getToDate() == null) {
+            state.setStep(LeaveStep.TO_DATE);
+            return Flux.just("Till which date? (same / yyyy-MM-dd / '5 days')");
+        }
+
+        if (state.getReason() == null) {
+            state.setStep(LeaveStep.REASON);
+            return Flux.just("Please tell me the reason for leave.");
+        }
+
+        // ------------------------------------------------------------
+        // 4️⃣ CONFIRM STEP
+        // ------------------------------------------------------------
+        if (state.getStep() == LeaveStep.CONFIRM) {
+
+            if (!isConfirmMessage(message)) {
+                return Flux.just("Please reply CONFIRM to submit or CANCEL to stop.");
+            }
+
+            return createLeaveTicketAndReset(state, userId);
+        }
+
+        // ------------------------------------------------------------
+        // 5️⃣ LAST SAFE FALLBACK (never break conversation)
+        // ------------------------------------------------------------
+        return Flux.just("Please provide remaining leave details so I can submit your request.");
+    }
+
+    private String buildLeaveConfirmation(LeaveFlowState s) {
+        return """
+    👍 I got everything:
+    • Leave Type: %s
+    • From: %s
+    • To: %s
+    • Reason: %s
+
+    Please confirm by typing CONFIRM or CANCEL.
+    """.formatted(
+                s.getLeaveType(),
+                s.getFromDate(),
+                s.getToDate(),
+                s.getReason()
+        );
+    }
 
     /* ============================================================
        Ticket creation helper
@@ -682,10 +861,8 @@ public class QueryService {
         ticket.setCreatedAt(LocalDateTime.now());
         ticket.setUpdatedAt(LocalDateTime.now());
 
-        leaveTicketRepository.save(ticket);
-
+        //leaveTicketRepository.save(ticket);
         leaveFlow.remove(userId);
-
         return Mono.fromCallable(() -> leaveTicketRepository.save(ticket))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(saved ->
@@ -960,18 +1137,12 @@ public class QueryService {
     }
 
 
-    private Flux<String> streamLikeLlm(String fullResponse) {
-
-        if (fullResponse == null || fullResponse.isBlank()) {
-            return Flux.empty();
-        }
-
-        // split into small chunks (words feel more natural than chars)
-        String[] tokens = fullResponse.split(" ");
-
-        return Flux.fromArray(tokens)
-                .delayElements(Duration.ofMillis(30 + new Random().nextInt(40)))// typing effect
-                .map(token -> token + " ");
+    private Flux<String> streamLikeLlm(String response) {
+        return Flux.fromIterable(
+                response.chars()
+                        .mapToObj(c -> String.valueOf((char) c))
+                        .toList()
+        ).delayElements(Duration.ofMillis(10));
     }
 
     private String extractTicketStatus(String message) {
@@ -1003,5 +1174,98 @@ public class QueryService {
         return sb.toString();
     }
 
+    private Flux<String> handleGeneralChatWithCache(String message) {
+
+        String normalizedPrompt = PromptNormalizer.normalize(message);
+
+        // 1️⃣ Exact cache hit
+        if (llmCache.contains(normalizedPrompt)) {
+            return streamLikeLlm(llmCache.get(normalizedPrompt));
+        }
+
+        // 2️⃣ Semantic cache hit
+        if (!semanticCache.isEmpty()) {
+
+            List<Float> queryEmbedding = embeddingService.embed(normalizedPrompt);
+
+            for (SemanticCacheEntry entry : semanticCache.getAll()) {
+
+                double similarity = CosineSimilarityUtil.similarity(
+                        queryEmbedding,
+                        entry.getEmbedding()
+                );
+
+                if (similarity >= 0.88) { // slightly stricter for chat
+                    return streamLikeLlm(entry.getResponse());
+                }
+            }
+        }
+
+        // 3️⃣ Cache miss → streaming LLM
+        return aiChatService.askStream(message)
+                .collectList()
+                .map(parts -> String.join("", parts))
+                .doOnNext(response -> {
+
+                    if (response != null && !response.isBlank()) {
+
+                        llmCache.put(normalizedPrompt, response);
+
+                        List<Float> embedding = embeddingService.embed(normalizedPrompt);
+                        semanticCache.put(new SemanticCacheEntry(embedding, response));
+                    }
+                })
+                .flatMapMany(Flux::just);
+    }
+
+    private Flux<String> answerPolicyWithCache(String message) {
+
+        String normalizedPrompt = PromptNormalizer.normalize(message);
+
+        // 1️⃣ Exact cache hit (fastest)
+        if (llmCache.contains(normalizedPrompt)) {
+            return streamLikeLlm(llmCache.get(normalizedPrompt));
+        }
+
+        // 2️⃣ Semantic cache hit (similar meaning)
+        if (!semanticCache.isEmpty()) {
+
+            List<Float> queryEmbedding = embeddingService.embed(normalizedPrompt);
+
+            for (SemanticCacheEntry entry : semanticCache.getAll()) {
+
+                double similarity = CosineSimilarityUtil.similarity(
+                        queryEmbedding,
+                        entry.getEmbedding()
+                );
+
+                // tune threshold if needed
+                if (similarity >= 0.85) {
+                    return streamLikeLlm(entry.getResponse());
+                }
+            }
+        }
+
+        // 3️⃣ Cache miss → synchronous LLM call (FASTER than streaming)
+        String response = aiChatService.askSync(message);
+
+        // 4️⃣ Save in caches
+        if (response != null && !response.isBlank()) {
+
+            llmCache.put(normalizedPrompt, response);
+
+            List<Float> embedding = embeddingService.embed(normalizedPrompt);
+            semanticCache.put(new SemanticCacheEntry(embedding, response));
+        }
+
+        return Flux.just(response);
+    }
+
+    private boolean isLeaveComplete(LeaveFlowState s) {
+        return s.getLeaveType() != null
+                && s.getFromDate() != null
+                && s.getToDate() != null
+                && s.getReason() != null;
+    }
 
 }
