@@ -1,0 +1,43 @@
+.inline-toast {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  width: fit-content;
+  max-width: 90%;
+}
+
+.inline-toast-downloading {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111;
+}
+
+.inline-toast-success {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+
+.inline-toast-error {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
+.inline-toast-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inline-toast-retry {
+  border: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.inline-toast-retry:hover {
+  background: rgba(0, 0, 0, 0.14);
+}

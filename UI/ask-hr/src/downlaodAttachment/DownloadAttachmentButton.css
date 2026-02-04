@@ -1,18 +1,57 @@
+/* Make AI bubble relative so button stays top-right */
 .chat-bubble.ai {
   position: relative;
 }
 
-.download-btn {
+/* Wrapper for badge + icon */
+.download-wrapper {
   position: absolute;
   top: 6px;
   right: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Download icon */
+.download-btn {
   border: none;
   background: transparent;
   cursor: pointer;
+  padding: 4px 6px;
   font-size: 18px;
+  border-radius: 8px;
 }
 
 .download-btn:hover {
   background: rgba(0, 0, 0, 0.08);
-  border-radius: 6px;
+}
+
+/* Badge base */
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.4px;
+  user-select: none;
+}
+
+/* Badge styles */
+.badge-excel {
+  background: rgba(0, 128, 0, 0.15);
+  color: #0a7a0a;
+  border: 1px solid rgba(0, 128, 0, 0.25);
+}
+
+.badge-pdf {
+  background: rgba(255, 0, 0, 0.12);
+  color: #c00000;
+  border: 1px solid rgba(255, 0, 0, 0.2);
+}
+
+.badge-file {
+  background: rgba(0, 0, 0, 0.08);
+  color: #333;
+  border: 1px solid rgba(0, 0, 0, 0.12);
 }

@@ -19,23 +19,39 @@ public class AiChatService {
         this.intexaPrompts = intexaPrompts;
     }
 
+    /**
+     * 🔥 FAST synchronous call (USE THIS FOR POLICY, STATUS, CONFIRMATIONS)
+     */
+    public String askSync(String prompt) {
+        return chatClient
+                .prompt()
+                .system(intexaPrompts.systemPrompt())
+                .user(prompt)
+                .call()
+                .content();
+    }
+
+    /**
+     * Async call (USE ONLY if you really need CompletableFuture)
+     */
     @Async
     public CompletableFuture<String> ask(String prompt) {
         return CompletableFuture.completedFuture(
-                chatClient
-                        .prompt()
-                        .user(prompt)
-                        .call()
-                        .content());
+                askSync(prompt)
+        );
     }
 
-    public String askStream(String prompt) {
-        System.out.println("🔥 Calling Ollama with prompt: " + prompt);
-        String systemPrompt = intexaPrompts.systemPrompt();
+    /**
+     * Streaming response (USE ONLY for chat-like UX)
+     */
+    public Flux<String> askStream(String prompt) {
+        System.out.println("🔥 Calling Ollama with prompt");
+
         return chatClient
                 .prompt()
-                .system(systemPrompt)
+                .system(intexaPrompts.systemPrompt())
                 .user(prompt)
-                .call().content();
+                .stream()
+                .content();
     }
 }

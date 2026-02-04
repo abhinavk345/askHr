@@ -2,7 +2,7 @@ package com.intech.ai.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,44 +12,63 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PolicyService {
 
-    private final VectorStore vectorStore;
     private final AiChatService aiChatService;
     private final PolicySearchService policySearchService;
 
-    public String answerPolicy(String question) throws Exception {
+    /**
+     * POLICY RAG with caching
+     * IMPORTANT:
+     * - Question MUST already be normalized by caller
+     * - Cache key = normalized question
+     */
+    @Cacheable(
+            value = "policy-search",
+            key = "#normalizedQuestion",
+            unless = "#result.contains('Sorry')"
+    )
+    public String answerPolicy(String normalizedQuestion) {
 
-        // 1️⃣ Retrieve TOP 3 relevant policy chunks
-       // List<Document> documents = vectorStore.similaritySearch(question);
-        List<Document> documents =policySearchService.searchPolicy(question);
-        if (documents.isEmpty()) {
+        // 1️⃣ Vector search (TOP-K kept very small)
+        List<Document> documents =
+                policySearchService.searchPolicy(normalizedQuestion);
+
+        if (documents == null || documents.isEmpty()) {
             return "Sorry, I could not find relevant HR policy information.";
         }
 
-        // 2️⃣ Build context
+        // 2️⃣ Build minimal context (critical for latency)
         String context = buildContext(documents);
 
-        // 3️⃣ RAG prompt
+        // 3️⃣ Lightweight RAG prompt
         String prompt = """
-                You are an HR assistant.
-                Answer strictly using the HR policy context below.
-                If the answer is not present, say "Not specified in HR policy".
+            You are an HR assistant.
+            Answer ONLY from the policy context below.
+            If the answer is not present, say:
+            "Not specified in HR policy."
 
-                Context:
-                %s
+            Policy Context:
+            %s
 
-                Question:
-                %s
-                """.formatted(context, question);
+            Question:
+            %s
+            """.formatted(context, normalizedQuestion);
 
-        // 4️⃣ LLM call
-        return aiChatService.ask(prompt).get();
+        // 4️⃣ Sync LLM call (FASTER than streaming)
+        return aiChatService.askSync(prompt);
     }
 
+    /**
+     * Keep context extremely small for fast token processing
+     */
     private String buildContext(List<Document> docs) {
         return docs.stream()
-             //   .map(d -> d.getText().substring(0, Math.min(800, d.getText().length())))
-                .map(d -> d.getText().substring(0, 300))
-                .limit(2)
-                .collect(Collectors.joining("\n\n"));
+                .limit(1) // 🔥 TOP-1 is enough for policies
+                .map(d ->
+                        d.getText().substring(
+                                0,
+                                Math.min(300, d.getText().length())
+                        )
+                )
+                .collect(Collectors.joining("\n"));
     }
 }
