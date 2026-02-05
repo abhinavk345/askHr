@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+/backend/dbConfig/chatmemory.lock.db
+/backend/dbConfig/chatmemory.mv
+/backend/dbConfig/chatmemory.trace
