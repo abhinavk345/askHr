@@ -12,9 +12,13 @@
 12. docker run -d --name qdrant --network askhr-network -p 6333:6333 -p 6334:6334 -v qdrant_data:/qdrant/storage qdrant/qdrant   -- if you want in netwwork
 13. docker run -d --name ollama -p 11434:11434 -v ollama_data:/root/.ollama ollama/ollama:latest
 14. docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_data:/qdrant/storage qdrant/qdrant:latest
-15. docker run -d --name askhr-backend --network askhr-network -p 9091:9091 -e SPRING_PROFILES_ACTIVE=docker -e SPRING_DATASOURCE_URL=jdbc:h2:file:/data/askhrdb -e SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver -e SPRING_DATASOURCE_USERNAME=sa -e SPRING_DATASOURCE_PASSWORD= -e SPRING_AI_OLLAMA_BASE_URL=http://host.docker.internal:11434 -v h2_data:/data askhr-backend
+15. // jaeger tracing docker
+16.  docker run -d --name jaeger -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/all-in-one:1.55
+17.  
+18. docker run -d --name askhr-backend --network askhr-network -p 9091:9091 -e SPRING_PROFILES_ACTIVE=docker -e SPRING_DATASOURCE_URL=jdbc:h2:file:/data/askhrdb -e SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver -e SPRING_DATASOURCE_USERNAME=sa -e SPRING_DATASOURCE_PASSWORD= -e SPRING_AI_OLLAMA_BASE_URL=http://host.docker.internal:11434 -v h2_data:/data askhr-backend
 ===============
-16. curl -X PUT "http://localhost:6333/collections/vector_store" -H "Content-Type: application/json" -d "{\"vectors\":{\"size\":1024,\"distance\":\"Cosine\"}}"
-17. curl http://localhost:6333/collections
+19. curl -X PUT "http://localhost:6333/collections/vector_store" -H "Content-Type: application/json" -d "{\"vectors\":{\"size\":1024,\"distance\":\"Cosine\"}}"
+20. curl http://localhost:6333/collections
     // it should return ---   {"result":{"collections":[{"name":"vector_store"}]},"status":"ok","time":0.000065426}
+
 
