@@ -45,11 +45,11 @@ public class PolicyService {
         return aiChatService.ask(prompt).get();
     }
 
-    private String buildContext(List<Document> docs) {
-        return docs.stream()
-             //   .map(d -> d.getText().substring(0, Math.min(800, d.getText().length())))
-                .map(d -> d.getText().substring(0, 300))
-                .limit(2)
+    private String buildContext(List<Document> documents) {
+        return documents.stream()
+                .map(Document::getText)
+                .filter(text -> text != null && !text.isBlank())
+                .map(text -> text.substring(0, Math.min(text.length(), 300)))
                 .collect(Collectors.joining("\n\n"));
     }
 }

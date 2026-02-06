@@ -1,16 +1,15 @@
 package com.intech.ai.service;
 
+import com.intech.ai.caches.ConversationStateStore;
 import com.intech.ai.caches.SemanticCacheEntry;
 import com.intech.ai.caches.SemanticResponseCache;
 import com.intech.ai.enums.LeaveStep;
+import com.intech.ai.enums.PendingIntent;
 import com.intech.ai.modal.LeaveFlowState;
 import com.intech.ai.modal.Ticket;
 import com.intech.ai.repository.TicketRepository;
 import com.intech.ai.caches.LlmResponseCache;
-import com.intech.ai.utility.CosineSimilarityUtil;
-import com.intech.ai.utility.FuzzyTextUtil;
-import com.intech.ai.utility.IntentDetector;
-import com.intech.ai.utility.PromptNormalizer;
+import com.intech.ai.utility.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -39,6 +38,8 @@ public class QueryService {
     private final LlmResponseCache llmCache;
     private final SemanticResponseCache semanticCache;
     private final EmbeddingService embeddingService;
+    private final PolicyService policyService;
+    private final ConversationStateStore conversationStateStore;
     // store conversation state per user
     private final Map<String, LeaveFlowState> leaveFlow = new ConcurrentHashMap<>();
     private final Map<String, UUID> lastTicketContext = new ConcurrentHashMap<>();
@@ -47,6 +48,14 @@ public class QueryService {
        MAIN ENTRY
        ============================================================ */
     public Flux<String> handleUserQuery(String message, String userId) {
+
+        if (conversationStateStore.getPendingIntent(userId) == PendingIntent.AWAITING_TICKET_ID
+                && TicketUtil.containsTicketId(message)) {
+
+            conversationStateStore.clear(userId);
+
+            return handleTicketStatus(TicketUtil.extractTicketId(message),userId);
+        }
 
         if (userId != null && leaveFlow.containsKey(userId)) {
 
@@ -85,6 +94,12 @@ public class QueryService {
             }
         }
 
+        if (IntentDetector.isLeavePolicyQuery(message)) {
+            return Mono.fromCallable(() -> policyService.answerPolicy(message))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .flatMapMany(this::streamLikeLlm);
+        }
+
         // 2) Detect leave intent (supports fuzzy + typos)
         if (IntentDetector.isLeaveCreationRequest(message)) {
             return handleLeaveCreation(message, userId);
@@ -92,8 +107,25 @@ public class QueryService {
 
         // Ticket status
         if (IntentDetector.isTicketStatusRequest(message)) {
-            return handleTicketStatus(message, userId);
+
+            if (!TicketUtil.containsTicketId(message)) {
+                conversationStateStore.setPendingIntent(
+                        userId,
+                        PendingIntent.AWAITING_TICKET_ID
+                );
+
+                return Flux.just(
+                        "I'd be happy to help 😊 Please provide your ticket ID."
+                );
+            }
+
+            return handleTicketStatus(TicketUtil.extractTicketId(message),userId );
         }
+
+//        // Ticket status
+//        if (IntentDetector.isTicketStatusRequest(message)) {
+//            return handleTicketStatus(message, userId);
+//        }
 
         // Ticket delete
         if (IntentDetector.isTicketDeleteRequest(message)) {

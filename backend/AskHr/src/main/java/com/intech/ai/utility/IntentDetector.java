@@ -54,7 +54,7 @@ public class IntentDetector {
      *  - "leave for 1 day"
      *  - typos: "leav", "leve", "tomorow"
      */
-    public static boolean isLeaveCreationRequest(String message) {
+    public static boolean isLeaveCreationRequest1(String message) {
         if (message == null || message.isBlank()) return false;
 
         String m = FuzzyTextUtil.normalize(message);
@@ -87,6 +87,57 @@ public class IntentDetector {
 
         // If leave keyword exists, and any of these signals exist -> leave request
         return hasAction || hasLeaveType || hasDate || hasDuration;
+    }
+
+    public static boolean isLeaveCreationRequest(String message) {
+        if (message == null || message.isBlank()) return false;
+
+        String m = FuzzyTextUtil.normalize(message);
+
+        if (m.contains("policy")
+                || m.contains("rule")
+                || m.contains("rules")
+                || m.contains("type")
+                || m.contains("types")
+                || m.contains("balance")
+                || m.contains("eligibility")
+                || m.contains("how many")
+                || m.contains("how much")) {
+            return false;
+        }
+
+        boolean hasLeave =
+                m.contains("leave") ||
+                        LEAVE_WORDS.stream().anyMatch(m::contains) ||
+                        FuzzyTextUtil.fuzzyContainsAny(m, LEAVE_WORDS, 1);
+
+        if (!hasLeave) return false;
+
+        boolean hasAction =
+                ACTION_WORDS.stream().anyMatch(m::contains) ||
+                        FuzzyTextUtil.fuzzyContainsAny(m, ACTION_WORDS, 1);
+
+        boolean hasLeaveType =
+                LEAVE_TYPE_WORDS.stream().anyMatch(m::contains) ||
+                        FuzzyTextUtil.fuzzyContainsAny(m, LEAVE_TYPE_WORDS, 2);
+
+        boolean hasDate =
+                DATE_WORDS.stream().anyMatch(m::contains) ||
+                        FuzzyTextUtil.fuzzyContainsAny(m, DATE_WORDS, 2) ||
+                        m.matches(".*\\d{4}-\\d{1,2}-\\d{1,2}.*"); // yyyy-M-d safe
+
+        boolean hasDuration =
+                DURATION_WORDS.stream().anyMatch(m::contains) ||
+                        m.matches(".*\\b\\d+\\s*day(s)?\\b.*");
+
+        if (hasAction) return true;
+
+        int weakSignals = 0;
+        if (hasLeaveType) weakSignals++;
+        if (hasDate) weakSignals++;
+        if (hasDuration) weakSignals++;
+
+        return weakSignals >= 2;
     }
 
     public static boolean isLeavePolicySummary(String message) {
@@ -209,4 +260,18 @@ public class IntentDetector {
         }
         return null;
     }
+
+    public static boolean isLeavePolicyQuery(String message) {
+        if (message == null) return false;
+
+        String m = message.toLowerCase();
+
+        return m.contains("leave policy")
+                || m.contains("leave rules")
+                || m.contains("leave types")
+                || m.contains("casual leave")
+                || m.contains("sick leave")
+                || m.contains("leave balance");
+    }
+
 }

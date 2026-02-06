@@ -3,14 +3,30 @@ import "../askHrComponent/AskAI.css";
 import askLogo from "../images/askLogos.png";
 import Menu from "./Menu";
 import parse from 'html-react-parser';
-import DOMPurify from 'dompurify';
+import DOMPurify from 'dompurify'; 
 // Import sound files
 import sendSound from "../sounds/send.mp3";
 import receiveSound from "../sounds/whatsappSend.mp3";
 import AudioButton from "../AudioToText/AudioButton";
 import SuggestionChips from "../Suggestions/SuggestionChips";
+import DownloadAttachmentButton from "../downlaodAttachment/DownloadAttachmentButton";
+import { parseAIResponse } from "../utils/aiResponseParser";
+import InlineDownloadToast from "../downlaodAttachment/InlineDownloadToast"; 
+
+import { CONTEXT_CHIPS } from "../Suggestions/contextChips";
+import { detectContext } from "../Suggestions/detectContext";
+
+
 function AskAI({ user }) {
 /* ================== STATE ================== */
+const STORAGE_KEY = "chatHistory";
+const LAST_SESSION_KEY = "lastSession";
+const GLOBAL_CACHE_KEY = "globalChatCache";
+
+const [currentSessionId, setCurrentSessionId] = useState(null);
+const [searchQuery, setSearchQuery] = useState("");
+const [searchResults, setSearchResults] = useState([]);
+
 const [chatHistory, setChatHistory] = useState({});
 const [showTooltip, setShowTooltip] = useState(true);
 const [tooltipText, setTooltipText] = useState("Need help?");
@@ -33,6 +49,7 @@ const dragThreshold = 5;
 const chatEndRef = useRef(null);
 
 // ---------- suggestions List----------
+const [suggestionList, setSuggestionList] = useState(CONTEXT_CHIPS.DEFAULT);
 const [suggestions, setSuggestions] = useState([
 "Leave policy",
 "Salary slip",
@@ -42,7 +59,26 @@ const [suggestions, setSuggestions] = useState([
   "confirm",
 "Attendance issue",
 ]);
+//for global chat caching
+const normalizeQuery = (q) =>
+  q
+    ?.toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
 
+const loadGlobalCache = () => {
+  try {
+    const saved = localStorage.getItem(GLOBAL_CACHE_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveGlobalCache = (cacheObj) => {
+  localStorage.setItem(GLOBAL_CACHE_KEY, JSON.stringify(cacheObj));
+};
+///////   global chat caching////////
 const CHIP_MAP = {
 "Leave policy": ["Casual leave", "Sick leave", "Apply leave"],
 "Salary slip": ["Download slip", "CTC breakup", "Tax deduction"],
@@ -51,17 +87,6 @@ const CHIP_MAP = {
 "Insurance benefits": ["Health insurance", "Dependents coverage"],
 "Attendance issue": ["Missed punch", "Regularization"],
 };
-const suggestionList = [
-"Leave policy",
-"create",
-"tomorrow",
-"same",
-  "Insurance benefits",
-  "confirm",
-"Attendance issue",
-];
-
-
 
 const handleChipSelect = (chipText) => {
 // Append chip text to input
@@ -90,30 +115,93 @@ return merged.slice(0, 6);
 const username = user?.name || "";
 const email = user?.employeeId || "";
 
-const messages = [
-"Need help?",
-"I'm here 👋",
-"Ask me anything!",
-"Need more help?",
-];
+ const updateSuggestionsByContext = (text) => {
+  const ctx = detectContext(text);
+  const newChips = CONTEXT_CHIPS[ctx] || CONTEXT_CHIPS.DEFAULT;
 
+  // keep unique + limit
+  setSuggestionList((prev) => {
+    const merged = [...newChips, ...prev].filter(
+      (chip, index, arr) => arr.indexOf(chip) === index
+    );
+    return merged.slice(0, 6);
+  });
+}; 
+
+/* Group sessions by day (for History menu)*/
+const getToday = () => new Date().toISOString().split("T")[0];
+const groupSessionsByDate = (sessions) => {
+  return Object.values(sessions).reduce((acc, session) => {
+    acc[session.date] = acc[session.date] || [];
+    acc[session.date].push(session);
+    return acc;
+  }, {});
+};
+
+
+const generateTitle = (text) =>
+  text.split(" ").slice(0, 4).join(" ") + "...";
+
+
+
+//======================================
 /* ================== LOAD HISTORY ================== */
 useEffect(() => {
-const saved = localStorage.getItem("chatHistory");
-if (saved) setChatHistory(JSON.parse(saved));
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) setChatHistory(JSON.parse(saved));
 }, []);
 
 useEffect(() => {
-if (!username || chat.length === 0) return;
+  const last = localStorage.getItem(LAST_SESSION_KEY);
+  if (!last) return;
 
-setChatHistory((prev) => {
-const updated = { ...prev, [username]: chat };
-localStorage.setItem("chatHistory", JSON.stringify(updated));
-return updated;
-});
-}, [chat, username]);
+  const { username: u, sessionId } = JSON.parse(last);
+  const session = chatHistory[u]?.sessions?.[sessionId];
+
+  if (session) {
+    setChat(session.messages);
+    setCurrentSessionId(sessionId);
+    setOpen(true);
+  }
+}, [chatHistory]);
+
+useEffect(() => {
+  if (!username || !currentSessionId || chat.length === 0) return;
+
+  setChatHistory((prev) => {
+    const updated = {
+      ...prev,
+      [username]: {
+        ...prev[username],
+        lastSessionId: currentSessionId,
+        sessions: {
+          ...prev[username]?.sessions,
+          [currentSessionId]: {
+            ...prev[username]?.sessions?.[currentSessionId],
+            messages: chat,
+          },
+        },
+      },
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(
+      LAST_SESSION_KEY,
+      JSON.stringify({ username, sessionId: currentSessionId })
+    );
+
+    return updated;
+  });
+}, [chat, currentSessionId, username]);
+
 
 /* ================== TOOLTIP AUTO HIDE ================== */
+const [toast, setToast] = useState({ show: false, message: "", type: "info" });
+
+const showToast = (message, type = "info") => {
+  setToast({ show: true, message, type });
+};
+
 useEffect(() => {
 if (!showTooltip) return;
 
@@ -174,6 +262,27 @@ setChat(prev);
 setUndoStack((prev) => prev.slice(0, prev.length - 1));
 };
 
+const searchHistory = (query) => {
+  if (!query) return setSearchResults([]);
+
+  const results = [];
+
+  Object.values(chatHistory[username]?.sessions || {}).forEach((s) => {
+    s.messages.forEach((m) => {
+      if (m.text.toLowerCase().includes(query.toLowerCase())) {
+        results.push({
+          sessionId: s.id,
+          title: s.title,
+          preview: m.text.slice(0, 80),
+        });
+      }
+    });
+  });
+
+  setSearchResults(results);
+};
+
+
 const handleRedo = () => {
 if (redoStack.length === 0) return;
 const next = redoStack[redoStack.length - 1];
@@ -211,77 +320,205 @@ time: new Date().toLocaleTimeString(),
 }
 }, [open, username]);
 
+useEffect(() => {
+  if (!username) return;
+  if (currentSessionId) return;
+
+  const sessionId = `${getToday()}_${Date.now()}`;
+  setCurrentSessionId(sessionId);
+
+  setChatHistory((prev) => ({
+    ...prev,
+    [username]: {
+      ...prev[username],
+      sessions: {
+        ...prev[username]?.sessions,
+        [sessionId]: {
+          id: sessionId,
+          title: "New Chat",
+          date: getToday(),
+          createdAt: Date.now(),
+          messages: [],
+        },
+      },
+    },
+  }));
+}, [username, currentSessionId]);
+
+
 /* ================== BACKEND CALL ================== */
+const loadHistoryFromStorage = () => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+
 const callBackend = async () => {
-if (showWelcome) setShowWelcome(false);
-if (!message.trim()) return;
+  if (showWelcome) setShowWelcome(false);
+  if (!message.trim()) return;
 
-pushUndoStack(chat);
+  pushUndoStack(chat);
+  setMessage("");
 
-const time = new Date().toLocaleTimeString();
-const userText = message;
-setMessage("");
+  const time = new Date().toLocaleTimeString();
+  const userText = message.trim();
+  const normalized = normalizeQuery(userText);
+  const globalCache = loadGlobalCache();
+  if (globalCache[normalized]) {
+  const cached = globalCache[normalized];
 
+  // push cached AI response instantly
+  // push user message FIRST
 setChat((prev) => [...prev, { role: "user", text: userText, time }]);
-playSound(sendSound);
 
-const controller = new AbortController();
-setAbortController(controller);
-setLoading(true);
+if (globalCache[normalized]) {
+  const cached = globalCache[normalized];
 
-try {
-const res = await fetch(
-`http://localhost:9091/askhr/api/v1/search/chat?message=${encodeURIComponent(userText)}`,
-{
-method: "GET",
-signal: controller.signal,
-headers: {
-emailId: email,
-},
+  setChat((prev) => [
+    ...prev,
+    {
+      role: "ai",
+      text: cached.message,
+      time: new Date().toLocaleTimeString(),
+      attachment: cached.attachment || null,
+      cached: true,
+    },
+  ]);
+
+  playSound(receiveSound);
+  updateSuggestionsByContext(cached.message);
+  return;
 }
-);
 
-const reader = res.body.getReader();
-const decoder = new TextDecoder("utf-8");
-let aiText = "";
+
+  playSound(receiveSound);
+
+  // suggestions update
+  updateSuggestionsByContext(cached.message);
+
+  return; // ✅ stop backend call
+}
+  setMessage("");
+
+  // ✅ Push user message first
+  setChat((prev) => [...prev, { role: "user", text: userText, time }]);
+
+  // ✅ Update suggestions based on user input immediately
+  updateSuggestionsByContext(userText);
+
+  // ✅ Play send sound
+  playSound(sendSound);
+
+  const controller = new AbortController();
+  setAbortController(controller);
+  setLoading(true);
+
+  try {
+    const res = await fetch(
+      `http://localhost:9091/askhr/api/v1/search/chat?message=${encodeURIComponent(
+        userText
+      )}`,
+      {
+        method: "GET",
+        signal: controller.signal,
+        headers: {
+          emailId: email,
+        },
+      }
+    );
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let aiText = "";
+
+    let aiMessageStarted = false;
 
 while (true) {
-const { value, done } = await reader.read();
-if (done) break;
+  const { value, done } = await reader.read();
+  if (done) break;
 
-aiText += decoder.decode(value, { stream: true });
+  aiText += decoder.decode(value, { stream: true });
+  const parsed = parseAIResponse(aiText);
 
-setChat((prev) => {
-const updated = [...prev];
-if (updated[updated.length - 1]?.role === "ai") {
-updated[updated.length - 1].text = aiText;
-} else {
-updated.push({ role: "ai", text: aiText, time: new Date().toLocaleTimeString() });
-}
-return updated;
-});
+  setChat((prev) => {
+    // 🛑 DUPLICATE GREETING GUARD
+    const isGreeting =
+      parsed.message?.toLowerCase().includes("how can i help you");
+
+    const alreadyGreeted = prev.some(
+      (m) =>
+        m.role === "ai" &&
+        m.text?.toLowerCase().includes("how can i help you")
+    );
+
+    if (isGreeting && alreadyGreeted) {
+      return prev; // ❌ skip duplicate greeting
+    }
+
+    const updated = [...prev];
+
+    if (!aiMessageStarted) {
+      updated.push({
+        role: "ai",
+        text: parsed.message,
+        time: new Date().toLocaleTimeString(),
+        attachment: parsed.attachment,
+      });
+      aiMessageStarted = true;
+    } else {
+      updated[updated.length - 1].text = parsed.message;
+      updated[updated.length - 1].attachment = parsed.attachment;
+    }
+
+    return updated;
+  });
 }
 
-playSound(receiveSound);
-} catch (err) {
-if (err.name === "AbortError") {
-setChat((prev) => [...prev, { role: "ai", text: "❌ Response stopped.", time: new Date().toLocaleTimeString() }]);
-} else {
-setChat((prev) => [
-...prev,
-{
-role: "ai",
-text: "❌ Error occurred. Click to retry.",
-time: new Date().toLocaleTimeString(),
-failed: true,
-originalMessage: userText,
-},
-]);
-}
-} finally {
-setLoading(false);
-setAbortController(null);
-}
+    // ✅ receive sound after full response
+    playSound(receiveSound);
+
+ const finalParsed = parseAIResponse(aiText);
+const updatedCache = loadGlobalCache();
+updatedCache[normalized] = {
+  message: finalParsed.message,
+  attachment: finalParsed.attachment || null,
+  savedAt: Date.now(),
+};
+saveGlobalCache(updatedCache);
+
+    // ✅ Update suggestions based on final AI response (ONLY HERE)
+    updateSuggestionsByContext(aiText);
+
+  } catch (err) {
+    if (err.name === "AbortError") {
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: "❌ Response stopped.",
+          time: new Date().toLocaleTimeString(),
+        },
+      ]);
+    } else {
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: "❌ Error occurred. Click to retry.",
+          time: new Date().toLocaleTimeString(),
+          failed: true,
+          originalMessage: userText,
+        },
+      ]);
+    }
+  } finally {
+    setLoading(false);
+    setAbortController(null);
+  }
 };
 
 /* ================== RETRY ================== */
@@ -326,7 +563,7 @@ setShowTooltip(true);
 
 const handleExitChat = () => {
 pushUndoStack(chat);
-setChat([]);
+// setChat([]);
 closeChat();
 };
 
@@ -335,6 +572,7 @@ if (!window.confirm("Are you sure you want to clear all chat history?")) return;
 setChatHistory({});
 setChat([]);
 localStorage.removeItem("chatHistory");
+localStorage.removeItem("lastSession");
 alert("All chat history cleared.");
 };
 
@@ -357,38 +595,96 @@ localStorage.setItem("chatHistory", JSON.stringify(updated));
 if (username === user) setChat([]);
 };
 
-/* ================== MENU ITEMS ================== */
-const historyMenuItems = Object.keys(chatHistory).length
-? Object.keys(chatHistory).map((user) => ({
-label: (
-<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-<span
-onClick={() => {
-setChat(chatHistory[user]);
-setOpen(true);
-}}
-style={{ cursor: "pointer", flex: 1 }}
->
-{user}
-</span>
-<span
-onClick={(e) => {
-e.stopPropagation();
-deleteHistoryUser(user);
-}}
-style={{ color: "red", cursor: "pointer", fontWeight: "bold" }}
-title="Delete history"
->
-❌
-</span>
-</div>
-),
-onClick: () => {},
-}))
-: [{ label: "No History Found", onClick: () => {} }];
+const historyMenuItems = Object.values(
+  loadHistoryFromStorage()[username]?.sessions || {}
+).map((s) => ({
+  label: `${s.date} • ${s.title}`,
+  onClick: () => {
+    const latest = loadHistoryFromStorage();
+    const session = latest[username]?.sessions?.[s.id];
 
+    setChat(session?.messages || []);
+    setCurrentSessionId(s.id);
+    setOpen(true);
+  },
+}));
+
+const startNewChat = () => {
+  if (!username) return;
+
+  // get latest stored history
+  const saved = localStorage.getItem(STORAGE_KEY);
+  const latestHistory = saved ? JSON.parse(saved) : chatHistory;
+
+  const sessions = latestHistory?.[username]?.sessions || {};
+  const sessionCount = Object.keys(sessions).length;
+
+  let title = "";
+
+  // ✅ first session ever
+  if (sessionCount === 0) {
+    title = `Chat : ${username}`;
+  } else {
+    const nextGuest = getNextGuestNumber(latestHistory, username);
+    title = `Chat : Guest ${nextGuest}`;
+  }
+
+  const sessionId = `${getToday()}_${Date.now()}`;
+
+  setCurrentSessionId(sessionId);
+  setChat([]);
+  setShowWelcome(true);
+  setOpen(true);
+
+  setChatHistory((prev) => {
+    const updated = {
+      ...prev,
+      [username]: {
+        ...prev[username],
+        lastSessionId: sessionId,
+        sessions: {
+          ...prev[username]?.sessions,
+          [sessionId]: {
+            id: sessionId,
+            title,
+            date: getToday(),
+            createdAt: Date.now(),
+            messages: [],
+          },
+        },
+      },
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(
+      LAST_SESSION_KEY,
+      JSON.stringify({ username, sessionId })
+    );
+
+    return updated;
+  });
+};
+ 
+
+const getNextGuestNumber = (history, username) => {
+  const sessions = history?.[username]?.sessions || {};
+  const titles = Object.values(sessions).map((s) => s.title || "");
+
+  // Match: "Chat : Guest 12"
+  const nums = titles
+    .map((t) => {
+      const m = t.match(/^Chat\s*:\s*Guest\s+(\d+)$/i);
+      return m ? parseInt(m[1], 10) : null;
+    })
+    .filter((n) => n !== null);
+
+  const max = nums.length ? Math.max(...nums) : 0;
+  return max + 1;
+};
+
+ 
 const fileMenuItems = [
-{ label: "New Chat", onClick: () => { pushUndoStack(chat); setChat([]); } },
+{ label: "New Chat", onClick: () => { pushUndoStack(chat); startNewChat(); } },
 { label: "Clear Chat", onClick: handleClearChat },
 { label: "Export Chat", onClick: handleExportChat },
 { label: "Exit Chat", onClick: handleExitChat },
@@ -470,14 +766,42 @@ return (
 ) : (
 <div className="chat-body">
 {chat.map((msg, i) => (
-<div
-key={i}
-className={`chat-bubble ${msg.role} ${msg.failed ? "retry" : ""}`}
-onClick={() => msg.failed && retryMessage(msg.originalMessage)}
->{parse(DOMPurify.sanitize(msg.text))}
-{/* {msg.text} */}
-<div className="timestamp">{msg.time}</div>
-</div>
+  <div
+    key={i}
+    className={`chat-bubble ${msg.role} ${msg.failed ? "retry" : ""}`}
+  >
+    {parse(DOMPurify.sanitize(msg.text))}
+
+    {/* download icon */}
+    {msg.role === "ai" && msg.attachment && (
+  <DownloadAttachmentButton
+    attachment={msg.attachment}
+    msgIndex={i}
+    setChat={setChat}
+  />
+)}
+
+  {msg.role === "ai" && (
+  <InlineDownloadToast
+    state={msg.downloadState}
+    message={msg.downloadMessage}
+    onRetry={() => {
+      // simulate click download again
+      setChat((prev) => {
+        const updated = [...prev];
+        if (!updated[i]) return prev;
+        updated[i] = {
+          ...updated[i],
+          retryDownload: Date.now(), // trigger
+        };
+        return updated;
+      });
+    }}
+  />
+)}
+
+    <div className="timestamp">{msg.time}</div>
+  </div>
 ))}
 {loading && (
 <div className="chat-bubble ai">
@@ -519,8 +843,11 @@ onSelect={handleChipSelect}
 />
 <div className="footer-note">&copy; Developed by Abhinav Kumar @ 2026</div>
 </div>
+  {/* ✅ ADD TOAST HERE (outside container but inside app-root) */}
+     
 </div>
 );
 }
+
 
 export default AskAI;
