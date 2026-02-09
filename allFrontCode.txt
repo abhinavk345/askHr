@@ -1,0 +1,2780 @@
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\App.jsx ===== 
+import { useState, useEffect } from "react";
+import Profile from "./dashboard/Profile";
+import LoginPage from "./Login/LoginPage";
+ 
+
+function App() {
+  const [isLogin, setIsLogin] = useState(false);
+  const [user, setUser] = useState(null);
+
+  // Load saved user info on page refresh
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+      setIsLogin(true);
+    }
+  }, []);
+
+  const handleLoginSuccess = (userData) => {
+    setUser(userData);
+    setIsLogin(true);
+    localStorage.setItem("user", JSON.stringify(userData));
+  };
+
+  return (
+    <div>
+      {isLogin ? (
+        <Profile user={user} />
+      ) : (
+        <LoginPage updateIsLogin={handleLoginSuccess} />
+      )}
+    </div>
+  );
+}
+
+export default App; 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\App.css ===== 
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\index.css ===== 
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\App.test.js ===== 
+import { render, screen } from '@testing-library/react';
+import App from './App';
+
+test('renders learn react link', () => {
+  render(<App />);
+  const linkElement = screen.getByText(/learn react/i);
+  expect(linkElement).toBeInTheDocument();
+});
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\index.js ===== 
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// If you want to start measuring performance in your app, pass a function
+// to log results (for example: reportWebVitals(console.log))
+// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+reportWebVitals();
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\reportWebVitals.js ===== 
+const reportWebVitals = onPerfEntry => {
+  if (onPerfEntry && onPerfEntry instanceof Function) {
+    import('web-vitals').then(({ getCLS, getFID, getFCP, getLCP, getTTFB }) => {
+      getCLS(onPerfEntry);
+      getFID(onPerfEntry);
+      getFCP(onPerfEntry);
+      getLCP(onPerfEntry);
+      getTTFB(onPerfEntry);
+    });
+  }
+};
+
+export default reportWebVitals;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\setupTests.js ===== 
+// jest-dom adds custom jest matchers for asserting on DOM nodes.
+// allows you to do things like:
+// expect(element).toHaveTextContent(/react/i)
+// learn more: https://github.com/testing-library/jest-dom
+import '@testing-library/jest-dom';
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\askHrComponent\AIButtonWithTooltip.jsx ===== 
+import React, { useState } from "react";
+
+export default function AIButtonWithTooltip() {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  return (
+    <div style={{ position: "fixed", right: "24px", bottom: "24px", zIndex: 2000 }}>
+      <div
+        className="ai-button"
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onClick={() => alert("Open AI Modal")}
+      >
+        AI
+      </div>
+
+      {/* Tooltip */}
+      <div className={`help-tooltip ${showTooltip ? "show" : ""}`}>
+        <span className="tooltip-close" onClick={() => setShowTooltip(false)}>×</span>
+        Hello! Click here to start chatting with AI.
+      </div>
+    </div>
+  );
+}
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\askHrComponent\AskAI.jsx ===== 
+import { useState, useEffect, useRef } from "react";
+import "../askHrComponent/AskAI.css";
+import askLogo from "../images/askLogos.png";
+import Menu from "./Menu";
+import parse from 'html-react-parser';
+import DOMPurify from 'dompurify'; 
+// Import sound files
+import sendSound from "../sounds/send.mp3";
+import receiveSound from "../sounds/whatsappSend.mp3";
+import AudioButton from "../AudioToText/AudioButton";
+import SuggestionChips from "../Suggestions/SuggestionChips";
+import DownloadAttachmentButton from "../downlaodAttachment/DownloadAttachmentButton";
+import { parseAIResponse } from "../utils/aiResponseParser";
+import InlineDownloadToast from "../downlaodAttachment/InlineDownloadToast"; 
+
+import { CONTEXT_CHIPS } from "../Suggestions/contextChips";
+import { detectContext } from "../Suggestions/detectContext";
+
+
+function AskAI({ user }) {
+/* ================== STATE ================== */
+const STORAGE_KEY = "chatHistory";
+const LAST_SESSION_KEY = "lastSession";
+const GLOBAL_CACHE_KEY = "globalChatCache";
+
+const [currentSessionId, setCurrentSessionId] = useState(null);
+const [searchQuery, setSearchQuery] = useState("");
+const [searchResults, setSearchResults] = useState([]);
+
+const [chatHistory, setChatHistory] = useState({});
+const [showTooltip, setShowTooltip] = useState(true);
+const [tooltipText, setTooltipText] = useState("Need help?");
+const [open, setOpen] = useState(false);
+const [message, setMessage] = useState("");
+const [chat, setChat] = useState([]);
+const [loading, setLoading] = useState(false);
+const [abortController, setAbortController] = useState(null);
+const [hasExitedChat, setHasExitedChat] = useState(false);
+const [showSearch, setShowSearch] = useState(false);
+const [undoStack, setUndoStack] = useState([]);
+const [redoStack, setRedoStack] = useState([]);
+const [showWelcome, setShowWelcome] = useState(true);
+// Draggable AI button
+const [aiPos, setAiPos] = useState({ x: window.innerWidth - 80, y: window.innerHeight - 100 });
+const [dragging, setDragging] = useState(false);
+const dragStart = useRef({ x: 0, y: 0 });
+const dragThreshold = 5;
+
+const chatEndRef = useRef(null);
+
+// ---------- suggestions List----------
+const [suggestionList, setSuggestionList] = useState(CONTEXT_CHIPS.DEFAULT);
+const [suggestions, setSuggestions] = useState([
+"Leave policy",
+"Salary slip",
+"WFH policy",
+"Holiday list",
+  "Insurance benefits",
+  "confirm",
+"Attendance issue",
+]);
+//for global chat caching
+const normalizeQuery = (q) =>
+  q
+    ?.toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+
+const loadGlobalCache = () => {
+  try {
+    const saved = localStorage.getItem(GLOBAL_CACHE_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveGlobalCache = (cacheObj) => {
+  localStorage.setItem(GLOBAL_CACHE_KEY, JSON.stringify(cacheObj));
+};
+///////   global chat caching////////
+const CHIP_MAP = {
+"Leave policy": ["Casual leave", "Sick leave", "Apply leave"],
+"Salary slip": ["Download slip", "CTC breakup", "Tax deduction"],
+"WFH policy": ["Hybrid policy", "Approval process", "WFH days"],
+"Holiday list": ["Public holidays", "Optional holidays"],
+"Insurance benefits": ["Health insurance", "Dependents coverage"],
+"Attendance issue": ["Missed punch", "Regularization"],
+};
+
+const handleChipSelect = (chipText) => {
+// Append chip text to input
+setMessage((prev) =>
+prev.trim() ? `${prev} ${chipText}` : chipText
+);
+
+setSuggestions((prev) => {
+// Remove clicked chip
+const filtered = prev.filter((c) => c !== chipText);
+
+// Get related chips
+const related = CHIP_MAP[chipText] || [];
+
+// Add new chips without duplicates
+const merged = [...filtered, ...related].filter(
+(chip, index, arr) => arr.indexOf(chip) === index
+);
+
+// Limit chip count (UI friendly)
+return merged.slice(0, 6);
+});
+};
+
+// ---------- LOGIN USER ----------
+const username = user?.name || "";
+const email = user?.employeeId || "";
+
+ const updateSuggestionsByContext = (text) => {
+  const ctx = detectContext(text);
+  const newChips = CONTEXT_CHIPS[ctx] || CONTEXT_CHIPS.DEFAULT;
+
+  // keep unique + limit
+  setSuggestionList((prev) => {
+    const merged = [...newChips, ...prev].filter(
+      (chip, index, arr) => arr.indexOf(chip) === index
+    );
+    return merged.slice(0, 6);
+  });
+}; 
+
+/* Group sessions by day (for History menu)*/
+const getToday = () => new Date().toISOString().split("T")[0];
+const groupSessionsByDate = (sessions) => {
+  return Object.values(sessions).reduce((acc, session) => {
+    acc[session.date] = acc[session.date] || [];
+    acc[session.date].push(session);
+    return acc;
+  }, {});
+};
+
+
+const generateTitle = (text) =>
+  text.split(" ").slice(0, 4).join(" ") + "...";
+
+
+
+//======================================
+/* ================== LOAD HISTORY ================== */
+useEffect(() => {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) setChatHistory(JSON.parse(saved));
+}, []);
+
+useEffect(() => {
+  const last = localStorage.getItem(LAST_SESSION_KEY);
+  if (!last) return;
+
+  const { username: u, sessionId } = JSON.parse(last);
+  const session = chatHistory[u]?.sessions?.[sessionId];
+
+  if (session) {
+    setChat(session.messages);
+    setCurrentSessionId(sessionId);
+    setOpen(true);
+  }
+}, [chatHistory]);
+
+useEffect(() => {
+  if (!username || !currentSessionId || chat.length === 0) return;
+
+  setChatHistory((prev) => {
+    const updated = {
+      ...prev,
+      [username]: {
+        ...prev[username],
+        lastSessionId: currentSessionId,
+        sessions: {
+          ...prev[username]?.sessions,
+          [currentSessionId]: {
+            ...prev[username]?.sessions?.[currentSessionId],
+            messages: chat,
+          },
+        },
+      },
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(
+      LAST_SESSION_KEY,
+      JSON.stringify({ username, sessionId: currentSessionId })
+    );
+
+    return updated;
+  });
+}, [chat, currentSessionId, username]);
+
+
+/* ================== TOOLTIP AUTO HIDE ================== */
+const [toast, setToast] = useState({ show: false, message: "", type: "info" });
+
+const showToast = (message, type = "info") => {
+  setToast({ show: true, message, type });
+};
+
+useEffect(() => {
+if (!showTooltip) return;
+
+const timer = setTimeout(() => setShowTooltip(false), 5000);
+return () => clearTimeout(timer);
+}, [showTooltip]);
+
+/* ================== SCROLL ================== */
+useEffect(() => {
+chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+}, [chat, loading]);
+
+/* ================== DRAGGABLE BUTTON ================== */
+const handleMouseDown = (e) => {
+setDragging(true);
+dragStart.current = { x: e.clientX, y: e.clientY };
+};
+
+const handleMouseMove = (e) => {
+if (!dragging) return;
+const dx = e.clientX - dragStart.current.x;
+const dy = e.clientY - dragStart.current.y;
+if (Math.abs(dx) > dragThreshold || Math.abs(dy) > dragThreshold) {
+setAiPos((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+dragStart.current = { x: e.clientX, y: e.clientY };
+}
+};
+
+const handleMouseUp = () => setDragging(false);
+
+useEffect(() => {
+window.addEventListener("mousemove", handleMouseMove);
+window.addEventListener("mouseup", handleMouseUp);
+return () => {
+window.removeEventListener("mousemove", handleMouseMove);
+window.removeEventListener("mouseup", handleMouseUp);
+};
+}, [dragging]);
+
+/* ================== SOUND ================== */
+const playSound = (sound) => {
+const audio = new Audio(sound);
+audio.volume = 0.5;
+audio.play();
+};
+
+/* ================== UNDO / REDO ================== */
+const pushUndoStack = (prevChat) => {
+setUndoStack((prev) => [...prev, JSON.parse(JSON.stringify(prevChat))]);
+setRedoStack([]); // clear redo on new change
+};
+
+const handleUndo = () => {
+if (undoStack.length === 0) return;
+const prev = undoStack[undoStack.length - 1];
+setRedoStack((prevRedo) => [...prevRedo, JSON.parse(JSON.stringify(chat))]);
+setChat(prev);
+setUndoStack((prev) => prev.slice(0, prev.length - 1));
+};
+
+const searchHistory = (query) => {
+  if (!query) return setSearchResults([]);
+
+  const results = [];
+
+  Object.values(chatHistory[username]?.sessions || {}).forEach((s) => {
+    s.messages.forEach((m) => {
+      if (m.text.toLowerCase().includes(query.toLowerCase())) {
+        results.push({
+          sessionId: s.id,
+          title: s.title,
+          preview: m.text.slice(0, 80),
+        });
+      }
+    });
+  });
+
+  setSearchResults(results);
+};
+
+
+const handleRedo = () => {
+if (redoStack.length === 0) return;
+const next = redoStack[redoStack.length - 1];
+setUndoStack((prevUndo) => [...prevUndo, JSON.parse(JSON.stringify(chat))]);
+setChat(next);
+setRedoStack((prev) => prev.slice(0, prev.length - 1));
+};
+
+const copyLastAI = () => {
+const lastAI = chat.filter((msg) => msg.role === "ai").pop();
+if (lastAI) {
+navigator.clipboard.writeText(lastAI.text);
+alert("Last AI response copied to clipboard!");
+}
+};
+
+const getTimeGreeting = () => {
+const hour = new Date().getHours();
+if (hour < 12) return "Good morning";
+if (hour < 17) return "Good afternoon";
+return "Good evening";
+};
+
+/* ================== GREETING ================== */
+useEffect(() => {
+if (open && chat.length === 0 && username) {
+const greeting = getTimeGreeting();
+setChat([
+{
+role: "ai",
+text: `${greeting} ${username} 👋\nHow can I help you today?`,
+time: new Date().toLocaleTimeString(),
+},
+]);
+}
+}, [open, username]);
+
+useEffect(() => {
+  if (!username) return;
+  if (currentSessionId) return;
+
+  const sessionId = `${getToday()}_${Date.now()}`;
+  setCurrentSessionId(sessionId);
+
+  setChatHistory((prev) => ({
+    ...prev,
+    [username]: {
+      ...prev[username],
+      sessions: {
+        ...prev[username]?.sessions,
+        [sessionId]: {
+          id: sessionId,
+          title: "New Chat",
+          date: getToday(),
+          createdAt: Date.now(),
+          messages: [],
+        },
+      },
+    },
+  }));
+}, [username, currentSessionId]);
+
+
+/* ================== BACKEND CALL ================== */
+const loadHistoryFromStorage = () => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+
+const callBackend = async () => {
+  if (showWelcome) setShowWelcome(false);
+  if (!message.trim()) return;
+
+  pushUndoStack(chat);
+  setMessage("");
+
+  const time = new Date().toLocaleTimeString();
+  const userText = message.trim();
+  const normalized = normalizeQuery(userText);
+  const globalCache = loadGlobalCache();
+  if (globalCache[normalized]) {
+  const cached = globalCache[normalized];
+
+  // push cached AI response instantly
+  // push user message FIRST
+setChat((prev) => [...prev, { role: "user", text: userText, time }]);
+
+if (globalCache[normalized]) {
+  const cached = globalCache[normalized];
+
+  setChat((prev) => [
+    ...prev,
+    {
+      role: "ai",
+      text: cached.message,
+      time: new Date().toLocaleTimeString(),
+      attachment: cached.attachment || null,
+      cached: true,
+    },
+  ]);
+
+  playSound(receiveSound);
+  updateSuggestionsByContext(cached.message);
+  return;
+}
+
+
+  playSound(receiveSound);
+
+  // suggestions update
+  updateSuggestionsByContext(cached.message);
+
+  return; // ✅ stop backend call
+}
+  setMessage("");
+
+  // ✅ Push user message first
+  setChat((prev) => [...prev, { role: "user", text: userText, time }]);
+
+  // ✅ Update suggestions based on user input immediately
+  updateSuggestionsByContext(userText);
+
+  // ✅ Play send sound
+  playSound(sendSound);
+
+  const controller = new AbortController();
+  setAbortController(controller);
+  setLoading(true);
+
+  try {
+    const res = await fetch(
+      `http://localhost:9091/askhr/api/v1/search/chat?message=${encodeURIComponent(
+        userText
+      )}`,
+      {
+        method: "GET",
+        signal: controller.signal,
+        headers: {
+          emailId: email,
+        },
+      }
+    );
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let aiText = "";
+
+    let aiMessageStarted = false;
+
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+
+  aiText += decoder.decode(value, { stream: true });
+  const parsed = parseAIResponse(aiText);
+
+  setChat((prev) => {
+    // 🛑 DUPLICATE GREETING GUARD
+    const isGreeting =
+      parsed.message?.toLowerCase().includes("how can i help you");
+
+    const alreadyGreeted = prev.some(
+      (m) =>
+        m.role === "ai" &&
+        m.text?.toLowerCase().includes("how can i help you")
+    );
+
+    if (isGreeting && alreadyGreeted) {
+      return prev; // ❌ skip duplicate greeting
+    }
+
+    const updated = [...prev];
+
+    if (!aiMessageStarted) {
+      updated.push({
+        role: "ai",
+        text: parsed.message,
+        time: new Date().toLocaleTimeString(),
+        attachment: parsed.attachment,
+      });
+      aiMessageStarted = true;
+    } else {
+      updated[updated.length - 1].text = parsed.message;
+      updated[updated.length - 1].attachment = parsed.attachment;
+    }
+
+    return updated;
+  });
+}
+
+    // ✅ receive sound after full response
+    playSound(receiveSound);
+
+ const finalParsed = parseAIResponse(aiText);
+const updatedCache = loadGlobalCache();
+updatedCache[normalized] = {
+  message: finalParsed.message,
+  attachment: finalParsed.attachment || null,
+  savedAt: Date.now(),
+};
+saveGlobalCache(updatedCache);
+
+    // ✅ Update suggestions based on final AI response (ONLY HERE)
+    updateSuggestionsByContext(aiText);
+
+  } catch (err) {
+    if (err.name === "AbortError") {
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: "❌ Response stopped.",
+          time: new Date().toLocaleTimeString(),
+        },
+      ]);
+    } else {
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: "❌ Error occurred. Click to retry.",
+          time: new Date().toLocaleTimeString(),
+          failed: true,
+          originalMessage: userText,
+        },
+      ]);
+    }
+  } finally {
+    setLoading(false);
+    setAbortController(null);
+  }
+};
+
+/* ================== RETRY ================== */
+const retryMessage = (msg) => {
+pushUndoStack(chat);
+setMessage(msg);
+setChat((prev) => prev.filter((m) => m.originalMessage !== msg));
+callBackend();
+};
+
+/* ================== KEYBOARD ================== */
+const handleKeyDown = (e) => {
+if (e.ctrlKey && e.key === "z") handleUndo();
+if (e.ctrlKey && e.key === "y") handleRedo();
+if (e.ctrlKey && e.key === "c") copyLastAI();
+if (e.key === "Enter") callBackend();
+};
+
+/* ================== MENU FUNCTIONS ================== */
+const handleClearChat = () => {
+pushUndoStack(chat);
+setChat([]);
+};
+
+const handleExportChat = () => {
+const content = chat.map((msg) => `${msg.role.toUpperCase()}: ${msg.text}`).join("\n");
+const blob = new Blob([content], { type: "text/plain" });
+const url = URL.createObjectURL(blob);
+const a = document.createElement("a");
+a.href = url;
+a.download = "chat.txt";
+a.click();
+URL.revokeObjectURL(url);
+};
+
+const closeChat = () => {
+setHasExitedChat(true);
+setOpen(false);
+setTooltipText("Need more help?");
+setShowTooltip(true);
+};
+
+const handleExitChat = () => {
+pushUndoStack(chat);
+// setChat([]);
+closeChat();
+};
+
+const handleClearHistory = () => {
+if (!window.confirm("Are you sure you want to clear all chat history?")) return;
+setChatHistory({});
+setChat([]);
+localStorage.removeItem("chatHistory");
+localStorage.removeItem("lastSession");
+alert("All chat history cleared.");
+};
+
+const handleSaveSession = () => {
+localStorage.setItem("chatSession", JSON.stringify(chat));
+alert("Session saved!");
+};
+
+const handleLoadSession = () => {
+const content = localStorage.getItem("chatSession");
+if (content) setChat(JSON.parse(content));
+else alert("No saved session found.");
+};
+
+const deleteHistoryUser = (user) => {
+const updated = { ...chatHistory };
+delete updated[user];
+setChatHistory(updated);
+localStorage.setItem("chatHistory", JSON.stringify(updated));
+if (username === user) setChat([]);
+};
+
+const historyMenuItems = Object.values(
+  loadHistoryFromStorage()[username]?.sessions || {}
+).map((s) => ({
+  label: `${s.date} • ${s.title}`,
+  onClick: () => {
+    const latest = loadHistoryFromStorage();
+    const session = latest[username]?.sessions?.[s.id];
+
+    setChat(session?.messages || []);
+    setCurrentSessionId(s.id);
+    setOpen(true);
+  },
+}));
+
+const startNewChat = () => {
+  if (!username) return;
+
+  // get latest stored history
+  const saved = localStorage.getItem(STORAGE_KEY);
+  const latestHistory = saved ? JSON.parse(saved) : chatHistory;
+
+  const sessions = latestHistory?.[username]?.sessions || {};
+  const sessionCount = Object.keys(sessions).length;
+
+  let title = "";
+
+  // ✅ first session ever
+  if (sessionCount === 0) {
+    title = `Chat : ${username}`;
+  } else {
+    const nextGuest = getNextGuestNumber(latestHistory, username);
+    title = `Chat : Guest ${nextGuest}`;
+  }
+
+  const sessionId = `${getToday()}_${Date.now()}`;
+
+  setCurrentSessionId(sessionId);
+  setChat([]);
+  setShowWelcome(true);
+  setOpen(true);
+
+  setChatHistory((prev) => {
+    const updated = {
+      ...prev,
+      [username]: {
+        ...prev[username],
+        lastSessionId: sessionId,
+        sessions: {
+          ...prev[username]?.sessions,
+          [sessionId]: {
+            id: sessionId,
+            title,
+            date: getToday(),
+            createdAt: Date.now(),
+            messages: [],
+          },
+        },
+      },
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(
+      LAST_SESSION_KEY,
+      JSON.stringify({ username, sessionId })
+    );
+
+    return updated;
+  });
+};
+ 
+
+const getNextGuestNumber = (history, username) => {
+  const sessions = history?.[username]?.sessions || {};
+  const titles = Object.values(sessions).map((s) => s.title || "");
+
+  // Match: "Chat : Guest 12"
+  const nums = titles
+    .map((t) => {
+      const m = t.match(/^Chat\s*:\s*Guest\s+(\d+)$/i);
+      return m ? parseInt(m[1], 10) : null;
+    })
+    .filter((n) => n !== null);
+
+  const max = nums.length ? Math.max(...nums) : 0;
+  return max + 1;
+};
+
+ 
+const fileMenuItems = [
+{ label: "New Chat", onClick: () => { pushUndoStack(chat); startNewChat(); } },
+{ label: "Clear Chat", onClick: handleClearChat },
+{ label: "Export Chat", onClick: handleExportChat },
+{ label: "Exit Chat", onClick: handleExitChat },
+{ label: "Clear History", onClick: handleClearHistory },
+];
+
+const editMenuItems = [
+{ label: "Undo", onClick: handleUndo },
+{ label: "Redo", onClick: handleRedo },
+{ label: "Copy Last AI Response", onClick: copyLastAI },
+];
+
+const searchMenuItems = [
+{ label: "Find in Chat", onClick: () => setShowSearch(true) },
+{ label: "Find Next", onClick: () => alert("Find Next clicked!") },
+];
+
+const sessionMenuItems = [
+{ label: "Save Session", onClick: handleSaveSession },
+{ label: "Load Session", onClick: handleLoadSession },
+{ label: "Clear Session", onClick: handleClearChat },
+];
+
+const helpMenuItems = [
+{ label: "Documentation", onClick: () => window.open("https://example.com/docs", "_blank") },
+{ label: "About", onClick: () => alert("HR Help Assistant v1.0 by Abhinav Kumar") },
+];
+
+/* ================== JSX ================== */
+if (!open) {
+return (
+<div
+className="ai-tooltip-wrapper"
+style={{ left: aiPos.x, top: aiPos.y, position: "fixed" }}
+onMouseDown={handleMouseDown}
+onClick={() => setOpen(true)}
+>
+{showTooltip && (
+<div className="ai-tooltip">
+<button className="ai-tooltip-close" onClick={(e) => { e.stopPropagation(); setShowTooltip(false); }}>✕</button>
+<div className="ai-tooltip-title">{tooltipText}</div>
+<div className="ai-tooltip-sub">Get instant answers to your queries.</div>
+<span className="ai-tooltip-arrow" />
+</div>
+)}
+<div className="floating-icon">AI</div>
+</div>
+);
+}
+
+return (
+<div className="app-root">
+<div className="container open">
+<div className="close-btn" onClick={closeChat}>✕</div>
+
+{/* HEADER */}
+<div className="header">
+<div className="icon"><img src={askLogo} alt="AI" /></div>
+<div className="title">HR Help Assistant {username && `(${username})`}</div>
+</div>
+
+{/* MENU BAR */}
+<div className="menu-bar">
+<Menu title="File" items={fileMenuItems} />
+<Menu title="Edit" items={editMenuItems} />
+<Menu title="History" items={historyMenuItems} />
+<Menu title="Search" items={searchMenuItems} />
+<Menu title="Session" items={sessionMenuItems} />
+<Menu title="Help" items={helpMenuItems} />
+</div>
+<div className="response-area">
+{showWelcome ? (
+<div className="welcome-screen">
+<h1>
+<strong>{getTimeGreeting()}</strong> {user?.name}
+</h1>
+<p>How can I help you today?</p>
+</div>
+) : (
+<div className="chat-body">
+{chat.map((msg, i) => (
+  <div
+    key={i}
+    className={`chat-bubble ${msg.role} ${msg.failed ? "retry" : ""}`}
+  >
+    {parse(DOMPurify.sanitize(msg.text))}
+
+    {/* download icon */}
+    {msg.role === "ai" && msg.attachment && (
+  <DownloadAttachmentButton
+    attachment={msg.attachment}
+    msgIndex={i}
+    setChat={setChat}
+  />
+)}
+
+  {msg.role === "ai" && (
+  <InlineDownloadToast
+    state={msg.downloadState}
+    message={msg.downloadMessage}
+    onRetry={() => {
+      // simulate click download again
+      setChat((prev) => {
+        const updated = [...prev];
+        if (!updated[i]) return prev;
+        updated[i] = {
+          ...updated[i],
+          retryDownload: Date.now(), // trigger
+        };
+        return updated;
+      });
+    }}
+  />
+)}
+
+    <div className="timestamp">{msg.time}</div>
+  </div>
+))}
+{loading && (
+<div className="chat-bubble ai">
+<div className="typing">
+<span className="dot" />
+<span className="dot" />
+<span className="dot" />
+</div>
+</div>
+)}
+<div ref={chatEndRef} />
+</div>
+)}
+</div>
+
+
+{/* FOOTER */}
+<div className="footer">
+<input
+value={message}
+onChange={(e) => setMessage(e.target.value)}
+onKeyDown={handleKeyDown}
+placeholder="How can I help you today?"
+/>
+<AudioButton onTranscribe={(text) => setMessage(text)} />
+<button
+className={loading ? "pause" : ""}
+onClick={() => {
+if (loading && abortController) abortController.abort();
+else callBackend();
+}}
+>
+{loading ? "Pause" : "Ask"}
+</button>
+</div>
+<SuggestionChips
+suggestions={suggestionList}
+onSelect={handleChipSelect}
+/>
+<div className="footer-note">&copy; Developed by Abhinav Kumar @ 2026</div>
+</div>
+  {/* ✅ ADD TOAST HERE (outside container but inside app-root) */}
+     
+</div>
+);
+}
+
+
+export default AskAI; 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\askHrComponent\Menu.jsx ===== 
+import { useState, useEffect, useRef } from "react";
+
+function Menu({ title, items }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close menu if clicked outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleItemClick = (onClick) => {
+    onClick();
+    setOpen(false); // close menu after clicking an item
+  };
+
+  
+  return (
+    <div className="menu" ref={menuRef}>
+      <span className="menu-title" onClick={() => setOpen(!open)}>
+        {title}
+      </span>
+      {open && (
+        <div className="menu-dropdown">
+          {items.map((item) => (
+            <div
+              key={item.label}
+              className="menu-item"
+              onClick={() => handleItemClick(item.onClick)}
+            >
+              {item.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Menu;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\askHrComponent\SettingControl.jsx ===== 
+import React from "react";
+
+const SettingControl = ({
+  label,
+  enabled,
+  value,
+  onToggle,
+  onChange,
+  type = "number",
+  placeholder = "Enter value",
+  min,
+  max,
+  step,
+}) => {
+  return (
+    <div className="setting-row">
+      <label className="setting-label">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={onToggle}
+        />
+        {label}
+      </label>
+
+      <input
+        type={type}
+        className="setting-input"
+        disabled={!enabled}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        min={min}
+        max={max}
+        step={step}
+      />
+    </div>
+  );
+};
+
+export default SettingControl;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\askHrComponent\AskAI.css ===== 
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #f4f6f8;
+}
+
+/* Root */
+.app-root {
+  position: fixed;
+  inset: 0; 
+}
+
+/* ================= CONTAINER ================= */
+.container {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 25vw;
+  min-width: 340px;
+  max-width: 420px;
+  height: 100vh;
+  background: #ffffff;
+  box-shadow: -12px 0 30px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%) scale(0.95);
+  opacity: 0;
+  transition: transform 0.45s ease, opacity 0.35s ease;
+  pointer-events: auto;
+}
+
+.container.open {
+  transform: translateX(0) scale(1);
+  opacity: 1;
+}
+
+.ai-button {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+
+  background: #e60000;
+  color: white;
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  z-index: 9999;
+
+  /* Smooth resize behavior */
+  transition: right 0.3s ease, bottom 0.3s ease, transform 0.2s ease;
+}
+@media (max-width: 768px) {
+  .ai-button {
+    right: 16px;
+    bottom: 16px;
+    width: 50px;
+    height: 50px;
+  }
+}
+/* Close button */
+.close-btn {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+/* ================= HEADER ================= */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #1e0303;
+}
+
+.icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.icon img {
+  width: 150%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ================= MENU BAR ================= */
+.menu-bar {
+  display: flex;
+  gap: 1px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #ddd;
+  background: #f9fafb;
+  font-size: 13px;
+}
+
+.menu {
+  position: relative;
+  display: inline-block; /* Ensure it doesn’t collapse */
+  z-index: 300;
+}
+
+.menu-title {
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none; /* Prevent text selection on click */
+  display: inline-block;
+  background: #f9fafb;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.menu:hover .menu-title {
+  background: #e5e7eb;
+  border-radius: 4px;
+}
+.menu-dropdown {
+  position: absolute;
+  top: 100%; /* directly below menu-title */
+  left: 0;
+  min-width: 150px;
+  background: white;
+  border: 1px solid #ddd;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.15);
+  z-index: 500; /* above everything else */
+}
+ 
+
+.menu-item {
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.menu-title:hover {
+  background: #e5e7eb;
+}
+
+.menu-item:hover {
+  background: #f3f4f6;
+}
+
+/* ================= RESPONSE ================= */
+.response-area {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+/* ================= CHAT ================= */
+.chat-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.chat-bubble.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: white;
+}
+
+.chat-bubble.ai {
+  align-self: flex-start;
+  background: #f1f5f9;
+  color: #111827;
+}
+
+.timestamp {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-top: 4px;
+  text-align: right;
+}
+
+/* ================= TYPING ================= */
+.typing {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  background: #6b7280;
+  border-radius: 50%;
+  animation: blink 1.4s infinite both;
+}
+
+.dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes blink {
+  0% { opacity: 0.2; }
+  20% { opacity: 1; }
+  100% { opacity: 0.2; }
+}
+
+/* ================= MODAL ================= */
+.inline-modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.95);
+  background: #ffffff;
+  padding: 24px 28px;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: center;
+  animation: modalFadeIn 0.35s forwards;
+  width: 90%;
+  max-width: 360px;
+  z-index: 1500;
+
+}
+.inline-modal h4 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: #111827;
+}
+
+.inline-modal input {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 14px;
+  outline: none;
+  transition: border 0.2s, box-shadow 0.2s;
+}
+
+.inline-modal input:focus {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+.inline-modal button {
+  padding: 12px 16px;
+  background: #4f46e5;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.25s, transform 0.2s;
+}
+
+.inline-modal button:hover {
+  background: #6366f1;
+  transform: translateY(-1px);
+}
+
+.inline-modal button:active {
+  transform: translateY(1px);
+}
+
+/* ================= FOOTER ================= */
+.footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid #eee;
+}
+
+.footer input {
+  flex: 1;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  outline: none;
+  font-size: 14px;
+  transition: border 0.2s, box-shadow 0.2s;
+}
+
+.footer input:focus {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+.footer input::placeholder {
+  color: #9ca3af;
+}
+.footer button {
+  padding: 10px 16px;
+  background: #4f46e5;
+  color: white;
+  border: none;
+  border-radius: 8px;
+}
+
+.footer button:disabled {
+  opacity: 0.6;
+}
+
+/* ================= FLOATING ICON ================= */
+/* .floating-icon {
+  position: fixed;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #4f46e5;
+  color: white;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000;
+  animation: pulse 1.5s infinite;
+  user-select: none;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.7); }
+  50% { transform: scale(1.1); box-shadow: 0 0 20px 5px rgba(79, 70, 229, 0.5); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.7); }
+} */
+
+
+.floating-icon {
+  position: fixed;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #4f46e5;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  cursor: grab;
+  z-index: 1000;
+  user-select: none;
+  transition: left 0.25s ease, top 0.25s ease;
+  box-shadow: 0 0 20px rgba(79,70,229,0.5);
+}
+
+
+/* Main pulse container */
+.floating-icon::before,
+.floating-icon::after,
+.floating-icon span {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(52, 35, 35, 0.6);
+  animation: wave 2.5s infinite;
+}
+
+/* Wave delays */
+.floating-icon::before {
+  animation-delay: 0s;
+}
+
+.floating-icon::after {
+  animation-delay: 0.8s;
+}
+
+.floating-icon span {
+  animation-delay: 1.6s;
+}
+
+.floating-icon:active {
+  cursor: grabbing;
+}
+
+/* Wave animation */
+@keyframes wave {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+
+/* ================= ANIMATION ================= */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+.chat-bubble.retry {
+  border: 1px dashed #f87171;
+  cursor: pointer;
+  background: #fee2e2; /* light red */
+}
+
+.chat-bubble.retry:hover {
+  background: #fecaca;
+}
+.footer-note {
+  font-size: 11px;       /* smaller text */
+  color: #6b7280;        /* subtle gray */
+  text-align: center;    /* center align */
+  padding: 6px 0;        /* small padding */
+}
+
+.footer button {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  color: white;
+  background: #4f46e5; /* default Ask */
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.footer button:hover {
+  background: #eb0b43;
+}
+
+.footer button.pause {
+  background: #ef4444; /* red for pause */
+}
+.disabled-btn {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ai-tooltip-wrapper {
+  position: fixed;
+  z-index: 100000; /* higher than chat container */
+}
+/* ================= TOOLTIP ================= */ /* ================= TOOLTIP CLOSE ================= */
+
+.ai-tooltip {
+  position: absolute;
+  right: 70px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #0e0e0d;
+  color: #fff;
+  padding: 12px 14px;
+  border-radius: 8px;
+  min-width: 220px;
+  z-index: 100001;
+}
+
+
+/* Close button */
+.ai-tooltip-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.ai-tooltip-close:hover {
+  opacity: 1;
+}
+
+/* Arrow */
+.ai-tooltip-arrow {
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 8px solid #0e0e0d;
+}
+
+.welcome-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  text-align: center;
+  padding: 50px;
+  font-family: "Segoe UI", sans-serif;
+}
+
+.welcome-screen h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+}
+
+.welcome-screen p {
+  font-size: 1.5rem;
+}
+
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\AudioToText\AudioButton.jsx ===== 
+import React, { useState, useEffect } from "react";
+import "../AudioToText/AudioButton.css";
+import dictate from "../images/dictate.png";
+function AudioButton({ onTranscribe }) {
+  const [listening, setListening] = useState(false);
+  const [recognition, setRecognition] = useState(null);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Your browser does not support speech recognition.");
+      return;
+    }
+
+    const recog = new SpeechRecognition();
+    recog.continuous = false;
+    recog.interimResults = false;
+    recog.lang = "en-US";
+
+    recog.onstart = () => setListening(true);
+    recog.onend = () => setListening(false);
+
+    recog.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      onTranscribe(transcript);
+    };
+
+    setRecognition(recog);
+  }, [onTranscribe]);
+
+  const handleClick = () => {
+    if (!recognition) return;
+    if (listening) recognition.stop();
+    else recognition.start();
+  };
+
+  return (
+    <button
+      className={`audio-button ${listening ? "listening" : ""}`}
+      onClick={handleClick}
+      title={listening ? "Listening..." : "Click to speak"}
+    >
+      <img src ={dictate}  alt="Mic" style={{ width: "24px", height: "24px" }}/>
+    </button>
+  );
+}
+
+export default AudioButton; 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\AudioToText\AudioButton.css ===== 
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 20px;
+  border: 1px solid #ccc;
+  outline: none;
+  font-size: 14px;
+}
+
+.footer button {
+  border: none;
+  border-radius: 20px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.audio-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background-color: #107e14;
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.3s;
+}
+
+.audio-button.listening {
+  background-color: #f44336;
+  animation: pulse 0.6s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+} 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\dashboard\Dashboard.jsx ===== 
+import React, { useState, useRef, useEffect } from "react";
+import "./Dashboard.css";
+
+const apps = [
+  { name: "Appraisal", icon: "📊" },
+  { name: "Calendar", icon: "📅" },
+  { name: "Discuss", icon: "💬" },
+  { name: "ESS", icon: "☝️" },
+  { name: "Expenses", icon: "💳" },
+  { name: "HelpDesk", icon: "🧑‍💻" },
+  { name: "IT Service Desk", icon: "🖥️" },
+  { name: "Leaves", icon: "🌴" },
+  { name: "Meal Voucher", icon: "🍽️" },
+  { name: "Project", icon: "✅" },
+  { name: "Referrals", icon: "🤝" },
+  { name: "RnR", icon: "🏅" },
+  { name: "Room Booking", icon: "🛋️" },
+  { name: "Timesheets", icon: "⏱️" },
+  { name: "To-do", icon: "✏️" },
+  { name: "Travel Desk", icon: "🚌" },
+  { name: "Wiki", icon: "📘" }
+];
+
+export default function Dashboard() {
+   const [open, setOpen] = useState(false);
+   const dropdownRef = useRef(null);
+
+  const handleLogout = () => {
+    // clear auth data
+    localStorage.clear(); // or remove specific token
+    sessionStorage.clear();
+
+    // redirect to login
+    window.location.href = "/login";
+  };
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []); 
+
+  return (
+    <div className="dashboard-root">
+      {/* Top Navbar */}
+      <div className="navbar">
+        <div className="navbar-left">
+          <span className="menu-icon">☰</span>
+          <span className="brand">Discuss</span>
+          <span className="config">Configuration</span>
+        </div>
+
+        <div className="navbar-right">
+          <span className="dot" />
+          <span className="bell">🔔</span>
+          <span className="company">INTECH Creative Services Pvt Ltd</span>
+          <div className="avatar" onClick={() => setOpen(!open)}>
+            A
+          </div>
+          {open && (
+            <div className="avatar-dropdown">
+              <div className="dropdown-item" onClick={handleLogout}>
+                🚪 Logout
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="search-container">
+        <input type="text" placeholder="Search menus..." />
+      </div>
+
+      {/* App Grid */}
+      <div className="app-grid">
+        {apps.map((app) => (
+          <div className="app-tile" key={app.name}>
+            <div className="app-icon">{app.icon}</div>
+            <div className="app-name">{app.name}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\dashboard\Profile.jsx ===== 
+import React from "react"; 
+import Dashboard from "./Dashboard";
+import AskAI from "../askHrComponent/AskAI";
+
+function Profile({ user }) {
+  return (
+    <div className="profile-container">
+      <Dashboard />
+      <AskAI user={user} />
+    </div>
+  );
+}
+
+export default Profile; 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\dashboard\Dashboard.css ===== 
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #faf7f0;
+}
+
+/* Root */
+.dashboard-root {
+  min-height: 100vh;
+}
+
+/* Navbar */
+.navbar {
+  height: 56px;
+  background: #164a6b;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.menu-icon {
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.brand {
+  font-weight: 600;
+}
+
+.config {
+  opacity: 0.8;
+}
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative; /* IMPORTANT for dropdown */
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background: red;
+  border-radius: 50%;
+}
+
+/* Avatar */
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  background: #f97316;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Avatar Dropdown */
+.avatar-dropdown {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+  min-width: 120px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.dropdown-item {
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dropdown-item:hover {
+  background-color: #f5f5f5;
+}
+
+/* Search */
+.search-container {
+  padding: 18px;
+  display: flex;
+  justify-content: center;
+}
+
+.search-container input {
+  width: 60%;
+  max-width: 640px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+}
+
+/* App Grid */
+.app-grid {
+  padding: 20px 40px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 28px;
+}
+
+/* App Tile */
+.app-tile {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 14px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.app-tile:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.app-icon {
+  font-size: 34px;
+  margin-bottom: 8px;
+}
+
+.app-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .search-container input {
+    width: 90%;
+  }
+
+  .app-grid {
+    padding: 20px;
+  }
+}
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\downlaodAttachment\DownloadAttachmentButton.jsx ===== 
+import React, { useState } from "react";
+import { downloadWithProgress } from "./downloadWithProgress";
+
+const API_BASE = "http://localhost:9091/askhr";
+
+function getBadgeLabel(fileType, fileName) {
+  const ft = (fileType || "").toUpperCase();
+  if (ft === "EXCEL" || fileName?.toLowerCase().endsWith(".xlsx")) return "EXCEL";
+  if (ft === "PDF" || fileName?.toLowerCase().endsWith(".pdf")) return "PDF";
+  return "FILE";
+}
+
+function getBadgeClass(label) {
+  switch (label) {
+    case "EXCEL":
+      return "badge badge-excel";
+    case "PDF":
+      return "badge badge-pdf";
+    default:
+      return "badge badge-file";
+  }
+}
+
+
+function DownloadAttachmentButton({ attachment, msgIndex, setChat, retryDownload}) {
+  const [downloading, setDownloading] = useState(false);
+
+  if (!attachment) return null;
+
+  const fileName = attachment.fileName || "download";
+  const badgeLabel = getBadgeLabel(attachment.fileType, fileName);
+  const badgeClass = getBadgeClass(badgeLabel);
+
+  const fullUrl =
+    attachment.url?.startsWith("http")
+      ? attachment.url
+      : `${API_BASE}${attachment.url}`;
+
+  const tooltipText = `${fileName} (${badgeLabel})`;
+
+  const updateInlineToast = (state, message) => {
+    setChat((prev) => {
+      const updated = [...prev];
+      if (!updated[msgIndex]) return prev;
+
+      updated[msgIndex] = {
+        ...updated[msgIndex],
+        downloadState: state,
+        downloadMessage: message,
+      };
+      return updated;
+    });
+  };
+
+  const doDownload = async () => {
+    if (downloading) return;
+
+    try {
+      setDownloading(true);
+
+      updateInlineToast("downloading", "⬇️ Downloading... 0%");
+
+      await downloadWithProgress(fullUrl, fileName, (percent) => {
+        if (percent === null) {
+          updateInlineToast("downloading", "⬇️ Downloading...");
+        } else {
+          updateInlineToast("downloading", `⬇️ Downloading... ${percent}%`);
+        }
+      });
+
+      updateInlineToast("success", "✅ Downloaded successfully");
+      setTimeout(() => updateInlineToast("idle", ""), 2000);
+    } catch (err) {
+      console.error(err);
+      updateInlineToast("error", "❌ Download failed. Click Retry.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleDownload = async (e) => {
+    e.stopPropagation();
+    await doDownload();
+  };
+
+
+  return (
+    <div className="download-wrapper">
+      <span className={badgeClass}>{badgeLabel}</span>
+
+      <button
+        onClick={handleDownload}
+        className={`download-btn ${downloading ? "download-btn-disabled" : ""}`}
+        title={tooltipText}
+        disabled={downloading}
+      >
+        {downloading ? <span className="download-spinner" /> : "⬇️"}
+      </button>
+
+      {/* store retry function on message itself (optional) */}
+      {/* retry handled from InlineDownloadToast */}
+    </div>
+  );
+}
+
+export default DownloadAttachmentButton; 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\downlaodAttachment\InlineDownloadToast.jsx ===== 
+import React from "react";
+import "./inlineDownloadToast.css";
+
+function InlineDownloadToast({ state, message, onRetry }) {
+  if (!state || state === "idle") return null;
+
+  return (
+    <div className={`inline-toast inline-toast-${state}`}>
+      <div className="inline-toast-row">
+        <span>{message}</span>
+
+        {state === "error" && (
+          <button className="inline-toast-retry" onClick={onRetry}>
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default InlineDownloadToast; 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\downlaodAttachment\DownloadAttachmentButton.css ===== 
+/* Make AI bubble relative so button stays top-right */
+.chat-bubble.ai {
+  position: relative;
+}
+
+/* Wrapper for badge + icon */
+.download-wrapper {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Download icon */
+.download-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 18px;
+  border-radius: 8px;
+}
+
+.download-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* Badge base */
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.4px;
+  user-select: none;
+}
+
+/* Badge styles */
+.badge-excel {
+  background: rgba(0, 128, 0, 0.15);
+  color: #0a7a0a;
+  border: 1px solid rgba(0, 128, 0, 0.25);
+}
+
+.badge-pdf {
+  background: rgba(255, 0, 0, 0.12);
+  color: #c00000;
+  border: 1px solid rgba(255, 0, 0, 0.2);
+}
+
+.badge-file {
+  background: rgba(0, 0, 0, 0.08);
+  color: #333;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+} 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\downlaodAttachment\inlineDownloadToast.css ===== 
+.inline-toast {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  width: fit-content;
+  max-width: 90%;
+}
+
+.inline-toast-downloading {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111;
+}
+
+.inline-toast-success {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+
+.inline-toast-error {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
+.inline-toast-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inline-toast-retry {
+  border: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.inline-toast-retry:hover {
+  background: rgba(0, 0, 0, 0.14);
+} 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\downlaodAttachment\downloadWithProgress.js ===== 
+export async function downloadWithProgress(url, fileName, onProgress) {
+  const res = await fetch(url, { method: "GET" });
+
+  if (!res.ok) throw new Error("Download failed");
+
+  const contentLength = res.headers.get("content-length");
+  const total = contentLength ? parseInt(contentLength, 10) : null;
+
+  // fallback if stream not available
+  if (!res.body) {
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = fileName || "download";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(blobUrl);
+    return;
+  }
+
+  const reader = res.body.getReader();
+  let received = 0;
+  const chunks = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    chunks.push(value);
+    received += value.length;
+
+    if (total) {
+      const percent = Math.round((received / total) * 100);
+      onProgress?.(percent);
+    } else {
+      onProgress?.(null);
+    }
+  }
+
+  const blob = new Blob(chunks);
+  const blobUrl = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = fileName || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  window.URL.revokeObjectURL(blobUrl);
+} 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Login\Header.jsx ===== 
+const Header = () => {
+  return (
+    <header className="header">
+      <div className="logo">
+        <span className="logo-box">I</span> INTECH
+      </div>
+
+      <nav className="nav">
+        <span>Jobs</span>
+        <span className="phone">📞 +91 9227702583</span>
+        <button className="btn-outline">Sign in</button>
+        <button className="btn-primary">Contact Us</button>
+      </nav>
+    </header>
+  );
+};
+
+export default Header;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Login\LoginCard.jsx ===== 
+import { useState } from "react";
+
+const LoginCard = (props) => {
+  const [employeeId, setEmployeeId] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+ const handleLogin = async (e) => {
+  e.preventDefault();
+  setError("");
+
+  // Validation
+  if (!employeeId || !password) {
+    setError("Employee ID and Password are required");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    // POST request to login API
+    const response = await fetch(
+      "http://localhost:9091/askhr/api/v1/login",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          employeeId,
+          password,
+        }),
+        credentials: "include", // optional, for cookies
+      }
+    );
+
+    // Handle error responses
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.message || "Invalid Employee ID or Password");
+    }
+
+    // Parse response
+    const data = await response.json();
+    console.log("Login success:", data);
+
+    // Create full user object
+    const userData = {
+      employeeId: data.employeeId,
+      name: data.name || "",   // Ensure backend sends name
+      email: data.email || "", // optional
+    };
+
+    // Save to localStorage
+    localStorage.setItem("user", JSON.stringify(userData));
+
+    // Notify parent component that login succeeded with user data
+    props.updateIsLogin(userData);
+  } catch (err) {
+    console.error(err);
+    setError(err.message || "Login failed");
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+  return (
+    <div className="login-card">
+      <div className="login-logo">
+        <span className="logo-box">I</span> INTECH
+        <p className="tagline">THE DESIRE TO PERFORM</p>
+      </div>
+
+      <form onSubmit={handleLogin}>
+        <label>Employee ID</label>
+        <input
+          type="text"
+          value={employeeId}
+          onChange={(e) => setEmployeeId(e.target.value)}
+          placeholder="Enter Employee ID"
+        />
+
+        <label className="password-label">
+          Password <span className="choose-user">Choose a user</span>
+        </label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Enter Password"
+        />
+
+        <button type="submit" className="login-btn" disabled={loading}>
+          {loading ? "Logging in..." : "Log in"}
+        </button>
+      </form>
+
+      {error && <p className="error-text">{error}</p>}
+
+      <p className="help-text">
+        Please contact IT Support team related to the login issue.<br />
+        Email To: <a href="#">IT Service Desk</a>
+      </p>
+    </div>
+  );
+};
+
+export default LoginCard;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Login\LoginPage.jsx ===== 
+import Header from "./Header";
+import MapSection from "./MapSection";
+import LoginCard from "./LoginCard";
+import "./login.css";
+const LoginPage = (props) => {
+  return (
+    <>
+      <Header />
+      <div className="login-layout">
+        <MapSection />
+        <LoginCard updateIsLogin={props.updateIsLogin} />
+      </div>
+    </>
+  );
+};
+
+export default LoginPage;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Login\MapSection.jsx ===== 
+import mapImg from "../images/login_page_img.png";
+
+const MapSection = () => {
+  return (
+    <div className="map-section">
+      <img src={mapImg} alt="World Map" />
+    </div>
+  );
+};
+
+export default MapSection;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Login\login.css ===== 
+* {
+  box-sizing: border-box;
+  font-family: "Segoe UI", Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #f4f6f8;
+}
+
+/* ===== HEADER ===== */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 30px;
+  background: white;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.logo {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.logo-box {
+  background: orange;
+  color: white;
+  padding: 4px 8px;
+  margin-right: 6px;
+}
+
+.nav span {
+  margin-right: 20px;
+  cursor: pointer;
+}
+
+.btn-outline {
+  background: none;
+  border: 1px solid #ccc;
+  padding: 6px 12px;
+  margin-right: 10px;
+}
+
+.btn-primary {
+  background: #6c3b5c;
+  color: white;
+  border: none;
+  padding: 7px 14px;
+}
+
+/* ===== MAIN LAYOUT ===== */
+.login-layout {
+  display: flex;
+  height: calc(100vh - 70px);
+}
+
+/* ===== MAP ===== */
+.map-section {
+  flex: 1;
+  background: #dff0f9;
+}
+
+.map-section img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ===== LOGIN CARD ===== */
+.login-card {
+  width: 420px;
+  background: white;
+  padding: 40px;
+  box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+}
+
+.login-logo {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.tagline {
+  font-size: 12px;
+  color: #666;
+}
+
+label {
+  font-size: 14px;
+  margin-top: 15px;
+  display: block;
+}
+
+input {
+  width: 100%;
+  padding: 10px;
+  margin-top: 6px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+.password-label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.choose-user {
+  font-size: 12px;
+  color: #6c3b5c;
+  cursor: pointer;
+}
+
+.login-btn {
+  width: 100%;
+  margin-top: 25px;
+  padding: 12px;
+  background: #6c3b5c;
+  color: white;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.help-text {
+  font-size: 12px;
+  margin-top: 20px;
+  color: #555;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 900px) {
+  .login-layout {
+    flex-direction: column;
+  }
+
+  .login-card {
+    width: 100%;
+  }
+}
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Suggestions\SuggestionChips.jsx ===== 
+import "./SuggestionChips.css"; 
+import { useState } from "react";
+
+function SuggestionChips({ suggestions = [], onSelect }) {
+  const [chips, setChips] = useState(suggestions);
+
+  // Function to remove a chip
+  const handleRemove = (chipToRemove, e) => {
+    e.stopPropagation(); // <-- stop the click from bubbling
+    const updated = chips.filter(chip => chip !== chipToRemove);
+    setChips(updated);
+  };
+
+  // Generate random light color
+  const getRandomColor = () => {
+    const r = Math.floor(200 + Math.random() * 55); // 200-255
+    const g = Math.floor(200 + Math.random() * 55);
+    const b = Math.floor(200 + Math.random() * 55);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+
+  return (
+    <div className="suggestion-chips">
+      {chips.map((chip) => (
+        <div
+          key={chip}
+          className="chip"
+          style={{ background: getRandomColor() }}
+          onClick={() => onSelect(chip)}
+        >
+          <span>{chip}</span>
+          <button 
+            className="remove-btn" 
+            onClick={(e) => handleRemove(chip, e)}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default SuggestionChips;
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Suggestions\SuggestionChips.css ===== 
+.suggestion-chips {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid #e5e5e5;
+  background: #fafafa;
+  overflow-x: auto;
+}
+
+.suggestion-chips::-webkit-scrollbar {
+  height: 4px;
+}
+
+.suggestion-chips::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 10px;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 16px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: 
+    transform 0.25s ease,
+    opacity 0.25s ease,
+    background 0.2s ease;
+}
+
+.chip:active {
+  transform: rotate(8deg) scale(0.9);
+  opacity: 0.6;
+}
+
+.chip:hover {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
+.chip .remove-btn {
+  background: transparent;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  color: #999;
+  font-size: 12px;
+  padding: 0;
+  line-height: 1;
+}
+
+.chip .remove-btn:hover {
+  color: #f43f5e;
+}
+ 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Suggestions\contextChips.js ===== 
+export const CONTEXT_CHIPS = {
+  LEAVE: ["Planned Leave", "Need Based Leave", "Apply Leave", "Leave Balance"],
+  TICKET: ["Check status", "Update status", "Download report"],
+  POLICY: ["Leave policy", "WFH policy", "Holiday list", "Insurance benefits"],
+  DEFAULT: ["Leave policy", "Ticket status", "Create ticket", "Apply leave"],
+}; 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\Suggestions\detectContext.js ===== 
+export function detectContext(text) {
+  if (!text) return "DEFAULT";
+
+  const t = text.toLowerCase();
+
+  // ticket context
+  if (
+    t.includes("ticket") ||
+    t.includes("status") ||
+    t.includes("resolve") ||
+    t.includes("update my ticket") ||
+    t.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)
+  ) {
+    return "TICKET";
+  }
+
+  // leave context
+  if (
+    t.includes("leave") ||
+    t.includes("apply leave") ||
+    t.includes("leave policy") ||
+    t.includes("planned leave") ||
+    t.includes("paternity") ||
+    t.includes("maternity")
+  ) {
+    return "LEAVE";
+  }
+
+  // policy context
+  if (
+    t.includes("policy") ||
+    t.includes("holiday") ||
+    t.includes("insurance") ||
+    t.includes("wfh")
+  ) {
+    return "POLICY";
+  }
+
+  return "DEFAULT";
+} 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\utils\aiResponseParser.js ===== 
+export function parseAIResponse(rawText) {
+  if (!rawText) return { message: "", attachment: null };
+
+  // try parse json
+  try {
+    const obj = JSON.parse(rawText);
+
+    // only handle if structure matches
+    if (obj && typeof obj === "object" && obj.message) {
+      return {
+        message: obj.message,
+        attachment: obj.attachment || null,
+      };
+    }
+  } catch (e) {
+    // not json => ignore
+  }
+
+  // fallback plain text
+  return { message: rawText, attachment: null };
+} 
+===== C:\Users\273273\Desktop\project\Fullstack\AskHr\UI\ask-hr\src\utils\attachmentParser.js ===== 
+export function parseAttachmentFromText(text) {
+  if (!text) return { cleanText: "", attachment: null };
+
+  const regex = /\[\[ATTACHMENT\|([A-Z]+)\|([^|]+)\|([^\]]+)\]\]/;
+  const match = text.match(regex);
+
+  if (!match) return { cleanText: text, attachment: null };
+
+  const fileType = match[1];
+  const fileName = match[2];
+  const url = match[3];
+
+  const cleanText = text.replace(match[0], "").trim();
+
+  return {
+    cleanText,
+    attachment: { fileType, fileName, url },
+  };
+} 
