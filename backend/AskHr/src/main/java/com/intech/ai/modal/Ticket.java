@@ -17,8 +17,8 @@ import java.util.UUID;
 public class Ticket {
 
     @Id
-    @UuidGenerator
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private String id;
 
     private String employeeId;
     private String category;

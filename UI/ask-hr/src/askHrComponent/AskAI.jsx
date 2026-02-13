@@ -20,7 +20,9 @@ import { detectContext } from "../Suggestions/detectContext";
 function AskAI({ user }) {
 /* ================== STATE ================== */
 const STORAGE_KEY = "chatHistory";
-const LAST_SESSION_KEY = "lastSession";
+const username = user?.name || "";
+// const LAST_SESSION_KEY = "lastSession";
+const LAST_SESSION_KEY = `lastSession_${username}`;
 const GLOBAL_CACHE_KEY = "globalChatCache";
 
 const [currentSessionId, setCurrentSessionId] = useState(null);
@@ -66,10 +68,24 @@ const normalizeQuery = (q) =>
     .trim()
     .replace(/\s+/g, " ");
 
+const CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+
 const loadGlobalCache = () => {
   try {
     const saved = localStorage.getItem(GLOBAL_CACHE_KEY);
-    return saved ? JSON.parse(saved) : {};
+    const parsed = saved ? JSON.parse(saved) : {};
+
+    const now = Date.now();
+
+    // Remove expired entries
+    Object.keys(parsed).forEach((key) => {
+      if (now - parsed[key].savedAt > CACHE_TTL) {
+        delete parsed[key];
+      }
+    });
+
+    localStorage.setItem(GLOBAL_CACHE_KEY, JSON.stringify(parsed));
+    return parsed;
   } catch {
     return {};
   }
@@ -112,7 +128,7 @@ return merged.slice(0, 6);
 };
 
 // ---------- LOGIN USER ----------
-const username = user?.name || "";
+
 const email = user?.employeeId || "";
 
  const updateSuggestionsByContext = (text) => {
@@ -150,6 +166,7 @@ useEffect(() => {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) setChatHistory(JSON.parse(saved));
 }, []);
+ 
 
 useEffect(() => {
   const last = localStorage.getItem(LAST_SESSION_KEY);
@@ -347,81 +364,64 @@ useEffect(() => {
 
 
 /* ================== BACKEND CALL ================== */
-const loadHistoryFromStorage = () => {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : {};
-  } catch (e) {
-    return {};
-  }
-};
-
 
 const callBackend = async () => {
-  if (showWelcome) setShowWelcome(false);
-  if (!message.trim()) return;
+  if (loading) return; // 🛑 prevent double request
 
-  pushUndoStack(chat);
-  setMessage("");
+  if (showWelcome) setShowWelcome(false);
+
+  // ✅ Capture message FIRST (very important)
+  const userText = message.trim();
+  if (!userText) return;
 
   const time = new Date().toLocaleTimeString();
-  const userText = message.trim();
   const normalized = normalizeQuery(userText);
-  const globalCache = loadGlobalCache();
-  if (globalCache[normalized]) {
-  const cached = globalCache[normalized];
 
-  // push cached AI response instantly
-  // push user message FIRST
-setChat((prev) => [...prev, { role: "user", text: userText, time }]);
+  pushUndoStack(chat);
+  setMessage(""); // clear input AFTER capture
 
-if (globalCache[normalized]) {
-  const cached = globalCache[normalized];
-
+  // ✅ Push user message immediately
   setChat((prev) => [
     ...prev,
-    {
-      role: "ai",
-      text: cached.message,
-      time: new Date().toLocaleTimeString(),
-      attachment: cached.attachment || null,
-      cached: true,
-    },
+    { role: "user", text: userText, time }
   ]);
 
-  playSound(receiveSound);
-  updateSuggestionsByContext(cached.message);
-  return;
-}
-
-
-  playSound(receiveSound);
-
-  // suggestions update
-  updateSuggestionsByContext(cached.message);
-
-  return; // ✅ stop backend call
-}
-  setMessage("");
-
-  // ✅ Push user message first
-  setChat((prev) => [...prev, { role: "user", text: userText, time }]);
-
-  // ✅ Update suggestions based on user input immediately
   updateSuggestionsByContext(userText);
-
-  // ✅ Play send sound
   playSound(sendSound);
 
+  // ===============================
+  // 🔁 1️⃣ CHECK GLOBAL CACHE
+  // ===============================
+  const globalCache = loadGlobalCache();
+  const cached = globalCache[normalized];
+
+  if (cached) {
+    setChat((prev) => [
+      ...prev,
+      {
+        role: "ai",
+        text: cached.message,
+        time: new Date().toLocaleTimeString(),
+        attachment: cached.attachment || null,
+        cached: true,
+      },
+    ]);
+
+    playSound(receiveSound);
+    updateSuggestionsByContext(cached.message);
+    return; // 🛑 stop here (no backend call)
+  }
+
+  // ===============================
+  // 🌐 2️⃣ CALL BACKEND
+  // ===============================
   const controller = new AbortController();
   setAbortController(controller);
   setLoading(true);
 
   try {
     const res = await fetch(
-      `http://localhost:9091/askhr/api/v1/search/chat?message=${encodeURIComponent(
-        userText
-      )}`,
+      `http://localhost:9091/askhr/api/v1/search/chat?message=${encodeURIComponent(userText)}`,
       {
         method: "GET",
         signal: controller.signal,
@@ -431,67 +431,62 @@ if (globalCache[normalized]) {
       }
     );
 
+    if (!res.ok || !res.body) {
+      throw new Error("Invalid response from server");
+    }
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder("utf-8");
-    let aiText = "";
 
+    let aiText = "";
     let aiMessageStarted = false;
 
-while (true) {
-  const { value, done } = await reader.read();
-  if (done) break;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
 
-  aiText += decoder.decode(value, { stream: true });
-  const parsed = parseAIResponse(aiText);
+      aiText += decoder.decode(value, { stream: true });
+      const parsed = parseAIResponse(aiText);
 
-  setChat((prev) => {
-    // 🛑 DUPLICATE GREETING GUARD
-    const isGreeting =
-      parsed.message?.toLowerCase().includes("how can i help you");
+      setChat((prev) => {
+        const updated = [...prev];
 
-    const alreadyGreeted = prev.some(
-      (m) =>
-        m.role === "ai" &&
-        m.text?.toLowerCase().includes("how can i help you")
-    );
+        if (!aiMessageStarted) {
+          updated.push({
+            role: "ai",
+            text: parsed.message,
+            time: new Date().toLocaleTimeString(),
+            attachment: parsed.attachment,
+          });
+          aiMessageStarted = true;
+        } else {
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            text: parsed.message,
+            attachment: parsed.attachment,
+          };
+        }
 
-    if (isGreeting && alreadyGreeted) {
-      return prev; // ❌ skip duplicate greeting
-    }
-
-    const updated = [...prev];
-
-    if (!aiMessageStarted) {
-      updated.push({
-        role: "ai",
-        text: parsed.message,
-        time: new Date().toLocaleTimeString(),
-        attachment: parsed.attachment,
+        return updated;
       });
-      aiMessageStarted = true;
-    } else {
-      updated[updated.length - 1].text = parsed.message;
-      updated[updated.length - 1].attachment = parsed.attachment;
     }
 
-    return updated;
-  });
-}
-
-    // ✅ receive sound after full response
     playSound(receiveSound);
 
- const finalParsed = parseAIResponse(aiText);
-const updatedCache = loadGlobalCache();
-updatedCache[normalized] = {
-  message: finalParsed.message,
-  attachment: finalParsed.attachment || null,
-  savedAt: Date.now(),
-};
-saveGlobalCache(updatedCache);
+    // ===============================
+    // 💾 3️⃣ SAVE TO CACHE
+    // ===============================
+    const finalParsed = parseAIResponse(aiText);
 
-    // ✅ Update suggestions based on final AI response (ONLY HERE)
-    updateSuggestionsByContext(aiText);
+    const updatedCache = loadGlobalCache();
+    updatedCache[normalized] = {
+      message: finalParsed.message,
+      attachment: finalParsed.attachment || null,
+      savedAt: Date.now(),
+    };
+    saveGlobalCache(updatedCache);
+
+    updateSuggestionsByContext(finalParsed.message);
 
   } catch (err) {
     if (err.name === "AbortError") {
@@ -520,6 +515,7 @@ saveGlobalCache(updatedCache);
     setAbortController(null);
   }
 };
+
 
 /* ================== RETRY ================== */
 const retryMessage = (msg) => {
@@ -595,19 +591,7 @@ localStorage.setItem("chatHistory", JSON.stringify(updated));
 if (username === user) setChat([]);
 };
 
-const historyMenuItems = Object.values(
-  loadHistoryFromStorage()[username]?.sessions || {}
-).map((s) => ({
-  label: `${s.date} • ${s.title}`,
-  onClick: () => {
-    const latest = loadHistoryFromStorage();
-    const session = latest[username]?.sessions?.[s.id];
-
-    setChat(session?.messages || []);
-    setCurrentSessionId(s.id);
-    setOpen(true);
-  },
-}));
+ 
 
 const startNewChat = () => {
   if (!username) return;
@@ -749,8 +733,7 @@ return (
 {/* MENU BAR */}
 <div className="menu-bar">
 <Menu title="File" items={fileMenuItems} />
-<Menu title="Edit" items={editMenuItems} />
-<Menu title="History" items={historyMenuItems} />
+<Menu title="Edit" items={editMenuItems} /> 
 <Menu title="Search" items={searchMenuItems} />
 <Menu title="Session" items={sessionMenuItems} />
 <Menu title="Help" items={helpMenuItems} />

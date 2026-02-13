@@ -18,7 +18,7 @@ public class LeaveService {
     private final LeaveBalanceRepository balanceRepo;
     private final LeaveRequestRepository requestRepo;
 
-    public LeaveService(LeaveBalanceRepository repo, LeaveBalanceRepository balanceRepo, LeaveRequestRepository requestRepo) {
+    public LeaveService(LeaveBalanceRepository balanceRepo, LeaveRequestRepository requestRepo) {
         this.balanceRepo = balanceRepo;
         this.requestRepo = requestRepo;
 

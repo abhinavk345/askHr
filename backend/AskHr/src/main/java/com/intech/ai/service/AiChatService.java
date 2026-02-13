@@ -36,6 +36,8 @@ public class AiChatService {
                 .prompt()
                 .system(systemPrompt)
                 .user(prompt)
-                .stream().content();
+                .stream()
+                .content()
+                .filter(chunk -> !chunk.trim().equalsIgnoreCase(prompt.trim()));
     }
 }

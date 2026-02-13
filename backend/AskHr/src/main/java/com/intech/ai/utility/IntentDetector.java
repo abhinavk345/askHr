@@ -1,6 +1,7 @@
 package com.intech.ai.utility;
 
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -89,7 +90,7 @@ public class IntentDetector {
         return hasAction || hasLeaveType || hasDate || hasDuration;
     }
 
-    public static boolean isLeaveCreationRequest(String message) {
+    public static boolean isLeaveCreationRequest11(String message) {
         if (message == null || message.isBlank()) return false;
 
         String m = FuzzyTextUtil.normalize(message);
@@ -139,6 +140,30 @@ public class IntentDetector {
 
         return weakSignals >= 2;
     }
+
+    public static boolean isLeaveCreationRequest(String message) {
+
+        if (message == null) return false;
+
+        String text = message.toLowerCase().trim();
+
+        // ❌ Informational intent → DO NOT start flow
+        if (text.contains("explain")
+                || text.contains("what is")
+                || text.contains("policy")
+                || text.contains("define")
+                || text.contains("about")) {
+            return false;
+        }
+
+        // ✅ Action intent required
+        return text.contains("apply")
+                || text.contains("create")
+                || text.contains("request")
+                || text.contains("book")
+                || text.matches(".*(need|want|take).*(leave).*");
+    }
+
 
     public static boolean isLeavePolicySummary(String message) {
         if (message == null || message.isBlank()) return false;
@@ -252,14 +277,42 @@ public class IntentDetector {
     }
 
     public static Integer extractDurationDays(String message) {
-        Pattern p = Pattern.compile("(\\d+)\\s*(day|days)");
-        Matcher m = p.matcher(message.toLowerCase());
 
-        if (m.find()) {
-            return Integer.parseInt(m.group(1));
+        if (message == null) return null;
+
+        String lower = message.toLowerCase();
+
+        // 1️⃣ Numeric match (e.g., 2 days)
+        Pattern numericPattern = Pattern.compile("(\\d+)\\s*day");
+        Matcher numericMatcher = numericPattern.matcher(lower);
+
+        if (numericMatcher.find()) {
+            return Integer.parseInt(numericMatcher.group(1));
         }
+
+        // 2️⃣ Word numbers
+        Map<String, Integer> wordNumbers = Map.of(
+                "one", 1,
+                "two", 2,
+                "three", 3,
+                "four", 4,
+                "five", 5,
+                "six", 6,
+                "seven", 7,
+                "eight", 8,
+                "nine", 9,
+                "ten", 10
+        );
+
+        for (Map.Entry<String, Integer> entry : wordNumbers.entrySet()) {
+            if (lower.contains(entry.getKey() + " day")) {
+                return entry.getValue();
+            }
+        }
+
         return null;
     }
+
 
     public static boolean isLeavePolicyQuery(String message) {
         if (message == null) return false;
@@ -272,6 +325,52 @@ public class IntentDetector {
                 || m.contains("casual leave")
                 || m.contains("sick leave")
                 || m.contains("leave balance");
+    }
+
+    public static boolean isLeaveRelated(String message) {
+
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+
+        String normalized = FuzzyTextUtil.normalize(message);
+
+        // 1️⃣ Date-like input
+        if (normalized.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            return true;
+        }
+
+        // 2️⃣ Natural date words
+        if (normalized.equals("today")
+                || normalized.equals("tomorrow")
+                || normalized.equals("same")) {
+            return true;
+        }
+
+        // 3️⃣ Duration pattern like "5 days"
+        if (normalized.matches("\\d+\\s+day[s]?")) {
+            return true;
+        }
+
+        // 4️⃣ Leave type keywords
+        if (normalized.contains("leave")
+                || normalized.contains("paternity")
+                || normalized.contains("maternity")
+                || normalized.contains("planned")
+                || normalized.contains("need based")
+                || normalized.contains("birthday")
+                || normalized.contains("project")
+                || normalized.contains("election")
+                || normalized.contains("without pay")) {
+            return true;
+        }
+
+        // 5️⃣ Menu selection (1-8)
+        if (normalized.matches("[1-8]")) {
+            return true;
+        }
+
+        return false;
     }
 
 }

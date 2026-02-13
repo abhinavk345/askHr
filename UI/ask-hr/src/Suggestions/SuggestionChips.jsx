@@ -1,8 +1,12 @@
 import "./SuggestionChips.css"; 
-import { useState } from "react";
+import { useState,useEffect } from "react";
 
 function SuggestionChips({ suggestions = [], onSelect }) {
-  const [chips, setChips] = useState(suggestions);
+const [chips, setChips] = useState([]);
+
+useEffect(() => {
+  setChips(suggestions);
+}, [suggestions]);
 
   // Function to remove a chip
   const handleRemove = (chipToRemove, e) => {
