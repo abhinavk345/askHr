@@ -43,6 +43,18 @@ public class QueryService {
     private final Map<String, LeaveFlowState> leaveFlow = new ConcurrentHashMap<>();
     private final Map<String, UUID> lastTicketContext = new ConcurrentHashMap<>();
 
+    private static final Map<String, Integer> WORD_TO_NUMBER = Map.of(
+            "one", 1,
+            "two", 2,
+            "three", 3,
+            "four", 4,
+            "five", 5,
+            "six", 6,
+            "seven", 7,
+            "eight", 8,
+            "nine", 9,
+            "ten", 10
+    );
     /* ============================================================
        MAIN ENTRY
        ============================================================ */
@@ -364,7 +376,7 @@ public class QueryService {
         }
 
         // Duration extraction: "5 days" etc.
-        Integer durationDays = IntentDetector.extractDurationDays(message);
+        Integer durationDays = extractDaysFromMessage(message);
         if (durationDays != null && durationDays > 1 && state.getFromDate() != null) {
             state.setToDate(state.getFromDate().plusDays(durationDays - 1));
         }
@@ -861,5 +873,27 @@ public class QueryService {
                 .map(token -> token + " ");
     }
 
+    private Integer extractDaysFromMessage(String message) {
+
+        if (message == null) return null;
+
+        message = message.toLowerCase();
+
+        // 1️⃣ Try numeric (5 day / 5 days)
+        Matcher digitMatcher = Pattern.compile("(\\d+)\\s*days?").matcher(message);
+        if (digitMatcher.find()) {
+            return Integer.parseInt(digitMatcher.group(1));
+        }
+
+        // 2️⃣ Try word numbers (five day / five days)
+        for (Map.Entry<String, Integer> entry : WORD_TO_NUMBER.entrySet()) {
+            if (message.contains(entry.getKey() + " day") ||
+                    message.contains(entry.getKey() + " days")) {
+                return entry.getValue();
+            }
+        }
+
+        return null;
+    }
 
 }

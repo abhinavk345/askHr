@@ -53,8 +53,8 @@ const CHIP_MAP = {
 };
 const suggestionList = [
 "Leave policy",
-"create",
-"tomorrow",
+"cancel",
+"confirm",
 "same",
   "Insurance benefits",
   "confirm",

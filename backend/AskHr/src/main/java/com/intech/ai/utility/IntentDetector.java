@@ -211,6 +211,7 @@ public class IntentDetector {
         return null;
     }
 
+
     public static LocalDate extractDuration(String message, LocalDate fromDate) {
 
         if (message == null || fromDate == null) {
