@@ -4,6 +4,7 @@ import com.intech.ai.modal.LeaveBalance;
 import com.intech.ai.modal.LeaveRequest;
 import com.intech.ai.repository.LeaveBalanceRepository;
 import com.intech.ai.repository.LeaveRequestRepository;
+import com.intech.ai.utility.NumberWordConverter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -133,7 +134,7 @@ public class LeaveService {
 
         return null;
     }
-    private LocalDate extractDuration(String message, LocalDate fromDate) {
+    private LocalDate extractDuration2(String message, LocalDate fromDate) {
 
         if (message == null || fromDate == null) return null;
 
@@ -169,6 +170,31 @@ public class LeaveService {
             String word = wordMatcher.group(1);
             Integer days = numberWords.get(word);
             if (days != null) {
+                return fromDate.plusDays(days - 1);
+            }
+        }
+
+        return null;
+    }
+    private LocalDate extractDuration(String message, LocalDate fromDate) {
+
+        if (message == null || fromDate == null) {
+            return null;
+        }
+
+        message = message.toLowerCase().trim();
+
+        // Match: 5 day, 5 days, five day, five days
+        Pattern pattern = Pattern.compile("(\\w+)\\s*day[s]?");
+        Matcher matcher = pattern.matcher(message);
+
+        if (matcher.find()) {
+
+            String durationText = matcher.group(1);
+
+            Integer days = NumberWordConverter.convert(durationText);
+
+            if (days != null && days > 0) {
                 return fromDate.plusDays(days - 1);
             }
         }

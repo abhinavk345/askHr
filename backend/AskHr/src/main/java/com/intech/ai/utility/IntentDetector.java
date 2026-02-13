@@ -1,5 +1,6 @@
 package com.intech.ai.utility;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -209,4 +210,31 @@ public class IntentDetector {
         }
         return null;
     }
+
+    public static LocalDate extractDuration(String message, LocalDate fromDate) {
+
+        if (message == null || fromDate == null) {
+            return null;
+        }
+
+        message = message.toLowerCase().trim();
+
+        // Match: 5 day, 5 days, five day, five days
+        Pattern pattern = Pattern.compile("(\\w+)\\s*day[s]?");
+        Matcher matcher = pattern.matcher(message);
+
+        if (matcher.find()) {
+
+            String durationText = matcher.group(1);
+
+            Integer days = NumberWordConverter.convert(durationText);
+
+            if (days != null && days > 0) {
+                return fromDate.plusDays(days - 1);
+            }
+        }
+
+        return null;
+    }
+
 }
